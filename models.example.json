@@ -1,0 +1,12 @@
+{
+  "_comment": "Replace the placeholder ID and verify these illustrative limits against your loaded server. This file does not load or configure a model server.",
+  "models": [
+    {
+      "name": "my-local-model",
+      "base_url": "http://127.0.0.1:1234/v1",
+      "model": "REPLACE_WITH_SERVER_MODEL_ID",
+      "context_window": 32768,
+      "max_tokens": 8192
+    }
+  ]
+}

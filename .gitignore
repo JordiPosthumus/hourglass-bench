@@ -1,0 +1,26 @@
+# Bring your own questions. Private content must never be committed.
+/tasks/
+/incoming/
+/banks/
+/question-banks/
+/ui/question-assets/
+/models.json
+/results/
+/evaluations/
+/sandboxes/
+/logs/
+/backups/
+/provenance.json
+/calibration.json
+/leaderboard.md
+/frontier.md
+/.run.lock
+.env
+.env.*
+*.pem
+*.key
+__pycache__/
+*.pyc
+.DS_Store
+
+/attempt-annotations.json

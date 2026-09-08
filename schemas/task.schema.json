@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Locally supplied Hourglass Bench task",
+  "description": "Structure only. No question or answer content is supplied.",
+  "type": "object",
+  "required": ["id", "kind", "mode", "prompt"],
+  "properties": {
+    "id": {"type":"string", "pattern":"^[A-Za-z0-9_-]+$"},
+    "kind": {"const":"mcq"},
+    "mode": {"enum":["option_id", "numeric"]},
+    "title": {"type":"string"},
+    "prompt": {"type":"string", "minLength":1},
+    "section": {"type":"string"},
+    "family": {"type":"string"},
+    "tier": {"type":["number","null"]},
+    "level": {"type":"string"},
+    "repeat": {"type":"integer", "minimum":1},
+    "max_turns": {"type":"integer", "minimum":1},
+    "shuffle": {"type":"boolean"},
+    "files": {"type":"object", "additionalProperties":{"type":"string"}},
+    "assets": {"type":"array", "items":{"type":"string"}},
+    "options": {"type":"array", "minItems":2, "items":{"type":"object", "required":["id","text"], "properties":{"id":{"type":"string","pattern":"^[0-9]{3}$"},"text":{"type":"string"}}}},
+    "answer": {"type":"string"},
+    "target": {"type":"number"},
+    "tolerance_abs": {"type":"number", "minimum":0}
+  },
+  "allOf": [
+    {"if":{"properties":{"mode":{"const":"option_id"}}},"then":{"required":["options","answer"]}},
+    {"if":{"properties":{"mode":{"const":"numeric"}}},"then":{"required":["target","tolerance_abs"]}}
+  ]
+}
