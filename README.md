@@ -4,6 +4,14 @@
 
 Hourglass Bench is a local evaluation harness for tool-using AI models. Give each model the same private question bank and measure how many questions it answers correctly within **one hour of active wall time**.
 
+## Results
+
+I use **private questions** for my own Hourglass Bench evaluations. Published results contain aggregate scores, hardware and recorded model configurations; the questions, answers and traces stay private.
+
+Browse the [Results index](reports/README.md) for published runs and model improvement charts. Related releases share a model-family label, with dated entries for weights revisions, quantization, inference engines, harnesses and parameters. Earlier runs remain available, including regressions. Different hardware and evaluation protocols are separated; partial runs are clearly marked.
+
+See [recording model improvements](docs/results-history.md) for the workflow and repository layout. This is a record of experiments on a private bank, not a universal model ranking.
+
 ## Bring your own questions
 
 **Bring your own question bank.** This repository includes only a tiny, explicitly labeled [hello-world demo](examples/hello-world) to check your setup. No private benchmark questions, private answer keys, question images, datasets, or recorded model runs are included. There is no bundled 100-question test and no universal leaderboard.

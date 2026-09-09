@@ -8,6 +8,8 @@ import math
 import hour_score
 import score_weights
 import hardware_records
+import results_history
+import report_charts
 
 
 def build(root, job, rows, manifest):
@@ -52,13 +54,19 @@ def build(root, job, rows, manifest):
             'clock_adjustment_seconds':round(sum(c['credit_s'] for c in credits),3),
             'execution':{'stop_after_wrong':job.get('stop_after_wrong',20),'repeat':manifest.get('repeat',1)},
             'configuration_disclosure':'Model settings not supplied; compare only equivalent settings.'}
-    maximum=max(1,h['weighted_points'],h['points'])
-    poly=lambda key:' '.join(f"{60+p['seconds']/3600*660:.2f},{280-p[key]/maximum*180:.2f}" for p in points)
-    esc=html.escape
+    report['unsupported_vision_questions']=len({r['task'] for active,r in events if r.get('score_reason')=='unsupported_vision'})
+    report.update(run_key=hashlib.sha256(str(job['id']).encode()).hexdigest()[:24],
+                  run_date=dt.datetime.fromtimestamp(job.get('started') or job.get('created') or 0,dt.timezone.utc).isoformat(),
+                  experiment=results_history.load(root,job['id']))
+    report['auc']=report_charts.auc(points,final=h['state']=='final')
     star='*' if credits else ''
-    svg=f'''<svg xmlns="http://www.w3.org/2000/svg" width="800" height="430" viewBox="0 0 800 430"><rect width="800" height="430" fill="#101722"/><g font-family="sans-serif" fill="#eaf0fa"><text x="40" y="38" font-size="22">Hourglass Bench · {esc(report['model'])}</text><text x="40" y="70">{h['weighted_points']:.2f} weighted points{star} · {h['points']} correct · {h['state']}</text><path d="M60 95V280H720" stroke="#718096" fill="none"/><polyline points="{poly('weighted')}" fill="none" stroke="#74e5c4" stroke-width="3"/><polyline points="{poly('correct')}" fill="none" stroke="#9aaaff" stroke-width="2"/><text x="60" y="305">0</text><text x="650" y="305">60 minutes</text><text x="40" y="340" fill="#74e5c4">Weighted points</text><text x="210" y="340" fill="#9aaaff">Raw correct</text><text x="40" y="370">Text: {h['breakdown']['text']['weighted_points']:.2f} · Vision: {h['breakdown']['vision']['weighted_points']:.2f}</text><text x="40" y="400" font-size="11">{'*Clock adjusted to exclude a harness interruption.' if credits else 'Active wall clock · thinking, tools and retries included'}</text></g></svg>'''
+    svg=report_charts.progress_chart([report])
     readme=f"# Hourglass Bench result\n\n![Score graph](score.svg)\n\nModel: {report['model'].replace(chr(10),' ')}\n\n**{h['weighted_points']:.2f} weighted points{star}**, {h['points']} correct. Status: **{h['state']}**.\n\nFixed difficulty weights: charts 1–10 → 1–2; games 1–5 → 1–2; math high school / undergraduate / graduate → 1 / 1.5 / 2. One award per question within 3,600 active seconds.\n\nBank fingerprint: `{report['bank_fingerprint']}`. Compare the same bank, order, repeat policy, model settings and hardware. Inference machine: {hardware['label']}. Model configuration disclosure has not been supplied.\n\n[Aggregate data](report.json)\n\nHardware source: {hardware.get('source','unknown')}.\n"
     readme+='\n### Recorded inference hardware\n\n```json\n'+json.dumps(hardware,indent=2)+'\n```\n'
+    readme+=f"\nUnsupported vision questions within the scoring window: **{report['unsupported_vision_questions']}**. These earn zero points; no extra penalty is applied. Text and vision subtotals are reported separately.\n"
+    readme+='\n## Experiment configuration\n\n'+('\n'.join('- '+k.replace('_',' ')+': '+html.escape(v) for k,v in report['experiment'].items()) or 'Configuration not recorded.')+'\n\nThese evaluations use private questions. Only aggregate results and explicitly recorded public configuration labels are published.\n'
+    a=report['auc']['point_minutes'] if report['auc']['state']=='final' else None
+    readme+='\nAUC companion: '+(f'**{a:.2f} weighted point-minutes**' if a is not None else 'pending a final run')+'. This rewards points earned earlier; it does not replace the weighted one-hour score. It integrates the exact stepped score. There is no maximum or percentage normalization.\n'
     if credits:readme+='\n<sub>*Clock adjusted to exclude a harness interruption.</sub>\n'
     return {'report.json':json.dumps(report,indent=2)+'\n','score.svg':svg,'README.md':readme}
 
@@ -79,32 +87,8 @@ def comparison(reports, scope='same'):
     if not reports:raise ValueError('No reports to compare.')
     reference=reports[0]
     compatible=compatible_reports(reports,scope)
-    maximum=max(1,max(r['weighted_points'] for r in compatible))
-    import math
-    ymax=max(2,math.ceil(maximum/2)*2)
-    colors=['#74e5c4','#9aaaff','#ffbf69','#f58aaa','#7ed5ff','#d5adff','#f5e384','#a9db80']
-    height=720+len(compatible)*32
-    elements=[f'<svg xmlns="http://www.w3.org/2000/svg" width="900" height="{height}" viewBox="0 0 900 {height}"><rect width="900" height="{height}" fill="#101722"/><g font-family="sans-serif" fill="#eaf0fa">',
-              f'<text x="45" y="38" font-size="24">Hourglass Bench · {html.escape("All hardware" if scope=="all" else hardware_label(reference))}</text>',
-              '<text x="45" y="65" font-size="13">Cumulative weighted points · each step is a correct answer · flat means no new points</text>']
-    for i in range(5):
-        value=ymax*i/4;y=580-i*120
-        elements.append(f'<path d="M65 {y}H850" stroke="#2c394a"/><text x="27" y="{y+5}" font-size="12">{value:g}</text>')
-    for minute in range(0,61,10):
-        x=65+minute/60*785
-        elements.append(f'<text x="{x-8}" y="611" font-size="12">{minute}</text>')
-    elements.append('<text x="390" y="645" font-size="13">Active minutes</text>')
-    for i,r in enumerate(compatible):
-        color=colors[i%len(colors)]
-        points=' '.join(f"{65+p['seconds']/3600*785:.2f},{580-p['weighted']/ymax*480:.2f}" for p in r['curve'])
-        y=692+i*32;star='*' if r.get('clock_adjustment_seconds') else ''
-        label=html.escape(f"{r['model']} · {hardware_label(r)} · {r['weighted_points']:.2f}{star} · {r['raw_correct']} correct · {r['state']}")
-        dash=' stroke-dasharray="7 3"' if i>=len(colors) else ''
-        elements.append(f'<polyline points="{points}" fill="none" stroke="{color}" stroke-width="2.5"{dash}/><path d="M45 {y-4}H70" stroke="{color}" stroke-width="3"{dash}/><text x="82" y="{y}" font-size="13">{label}</text>')
-    if any(r.get('clock_adjustment_seconds') for r in compatible):
-        elements.append(f'<text x="45" y="{height-12}" font-size="10">*Clock adjusted to exclude a harness interruption.</text>')
-    elements.append('</g></svg>')
-    return {'comparison.svg':''.join(elements),'comparison.json':json.dumps({'format':'hourglass-comparison-v1','scope':scope,'reports':compatible},indent=2)+'\n'}
+    chart=report_charts.progress_chart(compatible,scope)
+    return {'comparison.svg':chart,'comparison.json':json.dumps({'format':'hourglass-comparison-v1','scope':scope,'reports':compatible},indent=2)+'\n'}
 
 
 def quadrants(reports, scope='same'):

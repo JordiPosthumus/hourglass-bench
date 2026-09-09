@@ -1,0 +1,83 @@
+import json,tempfile,unittest
+from pathlib import Path
+from unittest.mock import patch
+import results_history as h
+import score_publisher as p
+
+class HistoryTests(unittest.TestCase):
+ def report(self,key='a',**kw):
+  return dict(model='demo',run_key=key,run_date='2026-01-01T00:00:00Z',experiment={'model_family':'Demo','configuration':key},hardware={'label':'Test hardware'},machine_key='machine',bank_fingerprint='bank',scoring='weighted-hour-v1',timing_policy='hour-v1',benchmark_version='v1',execution={'repeat':1},state='final',weighted_points=4,raw_correct=3,active_seconds=3600,efficiency={'token_data_complete':True,'accuracy':.75,'scored_answers':4,'median_output_tokens':1000,'answers_per_active_minute':.5},curve=[{'seconds':0,'weighted':0},{'seconds':3600,'weighted':4}],**kw)
+ def test_labels_are_explicit_and_bounded(self):
+  with tempfile.TemporaryDirectory() as d:
+   root=Path(d);(root/'evaluations').mkdir()
+   self.assertEqual(h.load(root,'a'),{})
+   h.save(root,'a',{'model_family':' Demo ','configuration':' Q4 '})
+   self.assertEqual(h.load(root,'a'),{'model_family':'Demo','configuration':'Q4'})
+   with self.assertRaises(ValueError):h.save(root,'a',{'api_key':'secret'})
+ def test_catalog_keeps_runs_and_republication_is_idempotent(self):
+  first=h.catalog_files([],self.report(),'first')
+  catalog=json.loads(first['reports/catalog.json'])
+  second=h.catalog_files(catalog,self.report('b'),'second')
+  catalog=json.loads(second['reports/catalog.json']);self.assertEqual(len(catalog),2)
+  again=h.catalog_files(catalog,self.report(),'replacement')
+  self.assertEqual(len(json.loads(again['reports/catalog.json'])),2)
+  self.assertIn('private questions',again['reports/README.md'])
+  self.assertTrue(any(k.endswith('-quadrants.svg') for k in again))
+  self.assertTrue(any(k.endswith('-comparison.svg') for k in again))
+ def test_history_separates_protocol_hardware_and_partial_runs(self):
+  a=self.report();b={**self.report('b'),'machine_key':'other'};c={**self.report('c'),'state':'partial'};d={**self.report('d'),'question_timeout_policy':'900'}
+  svg=h.evolution([a,b,c,d]);self.assertEqual(svg.count('protocol '),4)
+  self.assertEqual(svg.count('<polyline'),3)
+ def test_public_allowlist_omits_raw_runtime_data(self):
+  r=self.report();r.update(prompt='SECRET',trace='SECRET',base_url='SECRET',api_key='SECRET')
+  files=h.catalog_files([],r,'snapshot');self.assertNotIn('SECRET',''.join(files.values()))
+ def test_publisher_updates_snapshot_and_history_atomically(self):
+  calls=[]
+  def gh(path,payload=None):
+   calls.append((path,payload))
+   if path=='repos/owner/repo':return {'default_branch':'main'}
+   if '/git/ref/' in path:return {'object':{'sha':'head'}}
+   if path.endswith('/git/commits/head'):return {'tree':{'sha':'base'}}
+   return {'sha':'new'}
+  with patch.object(p,'gh',side_effect=gh),patch.object(p,'published_catalog',return_value=[]),patch.object(p.subprocess,'run') as run:
+   run.return_value.returncode=0
+   p.publish('owner/repo','snapshot',{'report.json':json.dumps(self.report()),'README.md':'reviewed'})
+   tree=next(payload for path,payload in calls if path.endswith('/git/trees'))
+   paths=[e['path'] for e in tree['tree']]
+   self.assertIn('reports/snapshot/report.json',paths);self.assertIn('reports/catalog.json',paths);self.assertIn('reports/README.md',paths)
+   self.assertEqual(tree['base_tree'],'base');self.assertFalse(json.loads(run.call_args.kwargs['input'])['force'])
+ def test_catalog_permission_failure_is_not_treated_as_empty(self):
+  with patch.object(p.subprocess,'run') as run:
+   run.return_value.returncode=1;run.return_value.stderr='Forbidden (HTTP 403)'
+   with self.assertRaisesRegex(ValueError,'No history'):p.published_catalog('owner/repo','head')
+   run.return_value.stderr='Not Found (HTTP 404)';self.assertEqual(p.published_catalog('owner/repo','head'),[])
+
+class AUCTests(unittest.TestCase):
+ def test_exact_steps_not_line_trapezoids(self):
+  import report_charts as c
+  curve=[{'seconds':0,'weighted':0},{'seconds':900,'weighted':0},{'seconds':900,'weighted':2},{'seconds':1800,'weighted':2},{'seconds':1800,'weighted':3},{'seconds':3600,'weighted':3}]
+  result=c.auc(curve,True)
+  self.assertEqual(result['point_seconds'],7200)
+  self.assertEqual(result['point_minutes'],120)
+  self.assertEqual(result['mean_weighted_points'],2)
+ def test_same_final_score_rewards_earlier_completion(self):
+  import report_charts as c
+  early=c.auc([{'seconds':900,'weighted':2}],True)
+  late=c.auc([{'seconds':2700,'weighted':2}],True)
+  self.assertEqual(early['point_minutes'],90);self.assertEqual(late['point_minutes'],30)
+  self.assertIsNone(c.auc([{'seconds':900,'weighted':2}],False)['mean_weighted_points'])
+  self.assertEqual(c.auc([{'seconds':3600,'weighted':2}],True)['point_minutes'],0)
+ def test_auc_has_no_ceiling(self):
+  import report_charts as c
+  result=c.auc([{'seconds':0,'weighted':10000}],True)
+  self.assertEqual(result['point_minutes'],600000)
+  self.assertIsNone(result['normalization'])
+  self.assertNotIn('maximum_points',result)
+ def test_display_connects_completion_points_without_changing_raw_curve(self):
+  import report_charts as c
+  curve=[{'seconds':0,'weighted':0},{'seconds':900,'weighted':0},{'seconds':900,'weighted':2},{'seconds':1800,'weighted':2}]
+  before=json.dumps(curve)
+  self.assertEqual(c.measured_points(curve),[curve[0],curve[2],curve[3]])
+  self.assertEqual(json.dumps(curve),before)
+
+if __name__=='__main__':unittest.main()

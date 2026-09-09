@@ -232,6 +232,8 @@ def clear_job(body):
         source=ROOT/'evaluations'/(jid+'.json');shutil.copy2(source,backup/'evaluation.json')
         settings_path=ROOT/'evaluations'/(jid+'.settings.jsonl')
         if settings_path.exists():shutil.copy2(settings_path,backup/'user-settings.jsonl')
+        experiment_path=ROOT/'evaluations'/(jid+'.experiment.json')
+        if experiment_path.exists():shutil.copy2(experiment_path,backup/'experiment.json')
         result_file=RESULTS/'results.jsonl';lines=result_file.read_bytes().splitlines(keepends=True) if result_file.exists() else []
         if result_file.exists():shutil.copy2(result_file,backup/'results-before.jsonl')
         (backup/'removed-results.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in removed))
@@ -267,6 +269,7 @@ def clear_job(body):
         hourglass.cmd_leaderboard(None,rows=retained,root=ROOT,emit=False)
         hourglass.cmd_frontier(None,rows=retained,root=ROOT,emit=False)
         source.unlink()
+        if experiment_path.exists():experiment_path.unlink()
         if log.exists():log.unlink()
         for path in artifacts:shutil.rmtree(path)
         for job in list(done):
