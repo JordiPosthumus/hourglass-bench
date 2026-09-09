@@ -127,3 +127,15 @@ Controller shutdown now waits for saved worker state. If the controller is kille
 The score comparison has a taller plot and a scrollable model table. Hover over the plot or use the time slider to see each model’s question and time spent at that point, plus its longest question so far. Expand a model for its full name and recorded rules. Question summaries are 5–7 words in a separate, hash-matched `question-summaries.json` catalogue; they do not change question content or scoring. Question details remain local and are excluded from public report exports.
 
 Custom model scale lets you assign your own numeric targets to recorded Hourglass runs, including completed hours and partial snapshots. All runs are shown by default. Reference points are frozen when saved; a shared linear fit places other models approximately on your scale and labels extrapolation. Original Hourglass scores are retained. Targets are local, backed up on edits and excluded from publication. The optional full-bank accuracy tools remain available separately.
+
+### Live throughput and request overlap
+
+The live run panel separates measured decode TPS from tools and prompt processing. LM Studio telemetry reads existing server logs, preserving their timestamps; it sends no inference requests and changes no server settings. It shows the three-second decode rate, request average, observed active requests, and an explicit unknown state when telemetry is stale or attribution is ambiguous. Counts cover the observed server, not other GPU applications.
+
+For a local LM Studio endpoint, create an ignored `telemetry-sources.json` file (merge with existing entries):
+
+```json
+{"_endpoints":{"http://127.0.0.1:1234/v1":{"type":"lmstudio","log_dir":"~/.lmstudio/server-logs"}}}
+```
+
+Use the endpoint URL exactly as saved in the model configuration. The reader resolves the model ID from each run’s frozen configuration and starts with subsequent runs. Existing per-model remote log sources remain supported and take precedence. An already running controller can receive telemetry without restarting the benchmark: run `python3 lmstudio_telemetry.py --root . --job RUN_ID` from the benchmark directory. This passive reader exits when that run stops; it records only timing and request metadata, never prompts. A file lock prevents duplicate collectors.

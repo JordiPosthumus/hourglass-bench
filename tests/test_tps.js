@@ -1,0 +1,11 @@
+const assert=require('node:assert/strict');const {renderTpsPanel}=require('../ui/tps.js');
+const decode={at:100,tps:55.1,request_avg_tps:54.9,window_s:3,slot:3,request_id:'one'};
+const status={at:101,phase:'telemetry_status',tps:null,observed_requests:1,last_server_event_at:100,server_phase:'decode',source:'LM Studio log',attribution:'model_and_slot'};
+let html=renderTpsPanel({samples:[decode,status]},'running',102);assert.match(html,/Live decode/);assert.match(html,/No overlap observed/);assert.match(html,/Other GPU workloads are not measured/);
+html=renderTpsPanel({samples:[decode,{...status,observed_requests:2}]},'running',102);assert.match(html,/Overlap observed/);
+html=renderTpsPanel({samples:[decode,{...status,at:120}]},'running',120);assert.match(html,/Last measured/);assert.match(html,/Unknown/);assert.doesNotMatch(html,/No overlap observed/);
+html=renderTpsPanel({samples:[decode,status],phase:'tool'},'running',102);assert.match(html,/Last measured/);assert.match(html,/Tool execution/);
+html=renderTpsPanel({samples:[decode,status]},'stopped',102);assert.match(html,/Last measured/);assert.match(html,/Unknown/);
+html=renderTpsPanel({error:'Live TPS is not connected for this endpoint.'},'running',102);assert.match(html,/Unavailable/);assert.match(html,/not connected/);
+html=renderTpsPanel({samples:[decode,{...status,attribution:'ambiguous',observed_requests:null}]},'running',102);assert.match(html,/Last measured/);assert.match(html,/Unknown/);
+console.log('TPS panel: live, overlap, stale log, tools, finished run, missing source and ambiguous attribution passed.');

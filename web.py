@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Hourglass Bench local console. Stdlib HTTP, one worker, explicit model runs only."""
 import hashlib
+import live_tps
 import json, os, signal, subprocess, threading, time, uuid, sys, mimetypes, shutil
 from collections import deque
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -157,6 +158,7 @@ def public_job(job, rows=None):
             result['resume']=resume_plan(job,manifest,rows)
             result['user_settings']=settings_records.records(ROOT,job['id'])
             result['run_details']=run_editor.snapshot(ROOT,job['id'])
+    result['telemetry']=live_tps.snapshot(ROOT,job)
     return result
 
 def state():
@@ -316,6 +318,7 @@ def worker():
             if not job.get('started'):job['started']=now
             running.append(job);calibration.update_evaluation(ROOT,job)
             threading.Thread(target=hour_deadline.watch_job,args=(job,condition,stop_job),daemon=True).start()
+        threading.Thread(target=live_tps.collect,args=(ROOT,job,condition),daemon=True).start()
         LOGS.mkdir(exist_ok=True)
         try:
             manifest=saved_manifest(job['id'])

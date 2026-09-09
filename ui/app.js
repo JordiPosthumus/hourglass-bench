@@ -160,7 +160,7 @@ function renderLiveRun(){
   $('liveRunEditor').onclick=()=>openRunEditor(job.id);
   $('liveRunTitle').textContent=(job.run_details?.values?.run_name||job.run_details?.values?.model_name||job.model)+' · '+(job.tasks?.length===1?job.tasks[0]:`${job.total_tasks??job.tasks?.length??0} questions`);
   $('liveSettingsSummary').textContent=job.user_settings?.length?`${job.user_settings.length} user-reported settings record(s) · latest saved ${new Date(job.user_settings.at(-1).recorded_at*1000).toLocaleString()}`:'Sampling settings unknown? Optionally record what your server shows.';
-  renderSpeed(job);
+  renderSpeed(job);renderTps(job);
   const p=job.progress;
   $('liveStop').classList.toggle('hidden',job.state!=='running');$('liveStop').disabled=!!job.stop_requested;$('liveStop').textContent=job.stop_requested?'Stopping…':'Stop run';$('liveResume').classList.toggle('hidden',!job.resume?.allowed);$('liveClear').classList.toggle('hidden',job.state==='running'||job.state==='pending');
   if(!p){$('liveMetrics').textContent='Live statistics will appear when the updated backend is available.';return}
@@ -274,6 +274,8 @@ async function renderCurrentQuestion(){
     $('currentQuestionFiles').textContent=t.files.length?'Workspace files: '+t.files.join(', '):'';$('currentQuestionContent').classList.remove('hidden');
   }catch(e){if(request!==currentQuestionRequest)return;currentQuestionKey='';$('currentQuestionStatus').textContent='Could not load the current question: '+e.message}
 }
+
+function renderTps(job){$('liveTps').innerHTML=renderTpsPanel(job.telemetry||{},job.state);}
 
 initializeQuestionContext();
 initializeModelScale();
