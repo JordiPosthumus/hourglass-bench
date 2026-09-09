@@ -26,6 +26,7 @@ def score(job, rows, expected=(), now=None):
 
     elapsed = active_at(job.get('ended') or now) if timing_known else job.get('progress', {}).get('elapsed_s', 0)
     within, after, errors, unknown = [], set(), 0, 0
+    timeouts = set()
     for r in raw:
         if r.get('score_reason') in ('five_wrong_in_row', 'wrong_streak_limit'):
             continue
@@ -41,7 +42,9 @@ def score(job, rows, expected=(), now=None):
             if r.get('status') == 'completed':
                 after.add(r['task'])
             continue
-        if r.get('status') == 'error':
+        if r.get('status') == 'timeout':
+            timeouts.add(r['task'])
+        elif r.get('status') == 'error':
             errors += 1
         elif r.get('status') == 'completed':
             within.append(r)
@@ -63,7 +66,7 @@ def score(job, rows, expected=(), now=None):
                        'weighted_points':(round(weighted({r['task'] for r in rs if r.get('solved')})-len(wrong & {r['task'] for r in rs}),6) if available else None) if net_policy else weighted({r['task'] for r in rs if r.get('solved')}),
                        'completed_questions': len({r['task'] for r in rs})}
     repeats={t['task']:t.get('repeat',1) for t in expected}
-    all_finished=bool(tids) and all(set(range(1,repeats.get(tid,1)+1)).issubset({r.get('run',1) for r in within if r['task']==tid}) for tid in tids)
+    all_finished=bool(tids) and all(tid in timeouts or set(range(1,repeats.get(tid,1)+1)).issubset({r.get('run',1) for r in within if r['task']==tid}) for tid in tids)
     final = available and (elapsed >= WINDOW_S or all_finished)
     state = 'unavailable' if not available else 'final' if final else 'in_progress' if job.get('state') == 'running' else 'not_started' if not started else 'partial'
     return {'version': VERSION, 'window_s': WINDOW_S, 'points': len(correct) if available else None,
@@ -71,6 +74,8 @@ def score(job, rows, expected=(), now=None):
             'scoring_policy':job.get('scoring_policy') or scoring_policy.LEGACY,'gross_points':gross,'net_points':net if net_policy else None,
             'penalty_points':len(wrong) if net_policy else 0,'abstained_questions':len(abstained),'unsupported_questions':len(unsupported),
             'correct_tasks': sorted(correct) if available else [], 'breakdown': lanes,
+            'timeouts':len(timeouts), 'resolved_questions':len(completed | timeouts),
+            'question_timeout_policy':job.get('question_timeout_policy'),
             'completed_questions': len(completed), 'incorrect_questions': len(wrong),
             'total_questions': len(tids), 'after_deadline_questions': len(after), 'errors': errors,
             'elapsed_s': elapsed, 'remaining_s': max(0, WINDOW_S - elapsed), 'state': state,

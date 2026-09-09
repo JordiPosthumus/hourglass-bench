@@ -1,4 +1,5 @@
 """Local preview and explicit GitHub publication of aggregate-only files."""
+import time
 import argparse
 import base64
 import json
@@ -10,6 +11,8 @@ import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
+import question_context
+import report_charts
 import score_report
 import hardware_records
 import results_history
@@ -104,7 +107,7 @@ def handler(root,port,source_port,repo='',prefix=''):
                 if prefix:self.path=self.path[len(prefix):] or '/'
                 u=urllib.parse.urlparse(self.path)
                 if u.path=='/':self.send(PAGE.replace("'/api/","'"+prefix+"/api/").replace("'/file/","'"+prefix+"/file/").replace('href="/file/','href="'+prefix+'/file/'),'text/html; charset=utf-8');return
-                if u.path in ('/api/preview','/chart.svg'):
+                if u.path in ('/api/preview','/chart.svg','/api/question-context'):
                     query=urllib.parse.parse_qs(u.query)
                     scope=query.get('scope',['all'])[0]
                     if scope not in ('same','all'):raise ValueError('Invalid comparison scope.')
@@ -127,13 +130,16 @@ def handler(root,port,source_port,repo='',prefix=''):
                         identity=(other['model'],candidate['machine_key'])
                         if identity in seen or len(score_report.compatible_reports([reference,candidate],scope))!=2:continue
                         reports.append(candidate);seen.add(identity)
+                    if u.path=='/api/question-context':
+                        self.send(json.dumps(question_context.build(root,reports,jobs,state['results'],time.time())));return
                     files.update(score_report.comparison(reports,scope))
                     files.update(score_report.quadrants(reports,scope))
                     files.update(score_report.ranking(reports,scope))
                     files['README.md']+='\nComparison scope: '+('all hardware' if scope=='all' else 'same hardware')+'. Selected run plus latest matching run per model and machine; model settings may differ.\n'
                     files['README.md']=files['README.md'].replace('![Score graph](score.svg)','![Score ranking](ranking.svg)\n\n![Models over time](comparison.svg)\n\n[Individual score graph](score.svg) · [Comparison data](comparison.json)\n\n![Accuracy, token efficiency and speed](quadrants.svg)')
                     if u.path=='/chart.svg':
-                        self.send(files[view+'.svg'],'image/svg+xml');return
+                        chart=report_charts.progress_chart(reports,scope,legend=False) if view=='comparison' and query.get('legend')==['none'] else files[view+'.svg']
+                        self.send(chart,'image/svg+xml');return
                     machines={}
                     for known in jobs:
                         saved=json.loads((root/'evaluations'/(known['id']+'.json')).read_text())

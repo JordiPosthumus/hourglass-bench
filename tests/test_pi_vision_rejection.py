@@ -17,3 +17,9 @@ class PiVisionRejection(unittest.TestCase):
  def test_other_errors_and_text_requests_remain_errors(self):
   for message,images in [('Error: 400: invalid image format',True),('Error: 400: context length exceeded',True),('Error: 401: model does not support images',True),('Error: 400: model does not support images',False)]:
    with self.subTest(message=message,images=images):self.assertFalse(hourglass.is_unsupported_vision(self.run_failure(message,images)))
+
+ def test_command_line_namespace_recognizes_harness_exception(self):
+  import runpy
+  cli=runpy.run_path(str(Path(hourglass.__file__)),run_name="cli_fixture")
+  error=self.run_failure('Error: 400: {"message":"The provided messages contain images, but poolside/laguna-s-2.1 does not support image inputs."}')
+  self.assertTrue(cli["is_unsupported_vision"](error))

@@ -128,3 +128,7 @@ Run charts offer same/all hardware scope and cumulative/ranking/accuracy-efficie
 The log display clears on new run, run selection and resume. It shows the current invocation; Copy full log preserves earlier resume segments. Tool validation errors are printed with details, and global leaderboard tables no longer repeat in per-question console logs. Saved leaderboards still update.
 
 Context discovery falls back to the matching `/v1/models` entry when LM Studio metadata is unavailable. Explicit image-support rejections from Pi are classified under the existing unsupported-vision zero-score policy; malformed images, authentication and context errors remain failures. Model settings are not automatically changed.
+
+### Controller lifecycle
+
+Start the app from your own Terminal with `./start-hourglass-bench.sh`. SIGINT, SIGTERM and SIGHUP request graceful worker drainage before exit. `./stop-hourglass-bench.sh` validates checkout and controller identity, cancels queued work and waits for saved state. New run/resume requests are rejected during shutdown. The worker watches its controller parent, stops its own process group if orphaned, and atomically saves an exit receipt. Recovery uses the exact question token and timestamps and backs up evidence before changing a manifest. Completed metric files missing from the append-only result index are reconciled under the same worker lock, with an original-index backup. Without reliable exit evidence, timing stays unavailable. Reports use the main UI at `/scores/`; no report helper is required.

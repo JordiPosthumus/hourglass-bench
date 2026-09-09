@@ -257,8 +257,7 @@ def chat(url, model, messages, cfg, use_tools=True, tools=None):
             raise UnsupportedVision(detail) from e
         raise RuntimeError(f"HTTP {e.code}: {detail or e.reason}") from e
 
-class UnsupportedVision(RuntimeError):
-    pass
+from benchmark_errors import UnsupportedVision
 
 def vision_rejection(detail):
     text = detail.lower()
@@ -673,9 +672,8 @@ def cmd_run(args):
                "ts": dt.datetime.now(dt.timezone.utc).isoformat()}
         rec.update(extra)
         if metrics.get("termination")=="turn_limit":rec["score_reason"]="turn_limit"
-        (rdir / "metrics.json").write_text(json.dumps(rec, indent=1))
-        with (RESULTS / "results.jsonl").open("a") as f:
-            f.write(json.dumps(rec) + "\n")
+        import result_store
+        result_store.commit(ROOT, rdir, rec)
         print(f"[{args.task} | {args.model} | repeat {run}] status={rec['status']} solved={solved} "
               f"time={metrics['duration_s']}s tools={metrics['tool_calls']} "
               f"tokens={metrics['prompt_tokens']}+{metrics['completion_tokens']}", flush=True)
@@ -912,7 +910,9 @@ def main():
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
                 raise SystemExit("Another Hourglass Bench run is active. Wait for it to finish; single-stream execution is enforced.")
-            args.fn(args)
+            from run_guard import WorkerGuard
+            with WorkerGuard(ROOT):
+                args.fn(args)
     else:
         args.fn(args)
 

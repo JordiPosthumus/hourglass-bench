@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "questions": {
+    "hello-world": {
+      "summary": "Repair incorrect arithmetic in a calculator",
+      "task_sha": "c05eeae3aa78b2fc"
+    }
+  }
+}

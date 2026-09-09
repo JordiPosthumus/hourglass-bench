@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Hourglass Bench local console. Stdlib HTTP, one worker, explicit model runs only."""
+import hashlib
 import json, os, signal, subprocess, threading, time, uuid, sys, mimetypes, shutil
 from collections import deque
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -8,6 +9,7 @@ from urllib.parse import urlparse, parse_qs
 import urllib.request
 import hourglass
 import calibration
+import model_scale
 import run_tracking
 import settings_records
 import run_editor
@@ -19,6 +21,8 @@ import attempt_annotations
 import score_weights
 import score_publisher
 import run_recovery
+import result_store
+import question_context
 
 ROOT = Path(__file__).resolve().parent
 TASKS, RESULTS, LOGS = ROOT/'tasks', ROOT/'results', ROOT/'logs'
@@ -28,6 +32,8 @@ condition = threading.Condition()
 worker_stop = False
 worker_thread = None
 score_handler = None
+shutting_down = False
+controller_instance = uuid.uuid4().hex
 
 def read_json(path, default=None):
     try: return json.loads(Path(path).read_text())
@@ -40,7 +46,7 @@ def model_names():
     return [m['name'] for m in model_document().get('models', []) if isinstance(m,dict) and isinstance(m.get('name'),str)]
 
 def task_catalog():
-    tasks=[]
+    tasks=[];summaries=question_context.catalog(ROOT)
     for p in sorted(TASKS.glob('*/task.json')):
         t=read_json(p)
         if not t: continue
@@ -52,6 +58,7 @@ def task_catalog():
         if t.get('source') and not Path(t['source']['repo']).exists():issues.append('Source repository is unavailable')
         tasks.append({'id':p.parent.name,'kind':t.get('kind','fix'),'section':section,
                       'family':t.get('family') or section,'tier':t.get('tier',1),
+                      'summary':question_context.summary(summaries,{'task':p.parent.name,'task_sha':(hourglass.sha(p) or '')[:16]}),
                       'order_tier':run_tracking.difficulty_tier(t),'tier_estimated':t.get('tier') is None and run_tracking.difficulty_tier(t) is not None,
                       'level':t.get('level'),'title':t.get('title') or p.parent.name,'repeat':t.get('repeat',3),
                       'mode':t.get('mode'),'options':len(t.get('options') or t.get('choices') or []),
@@ -153,6 +160,7 @@ def public_job(job, rows=None):
     return result
 
 def state():
+    refresh_recovered_history()
     doc=model_document();rows=result_rows()
     settings_cache={}
     for row in rows:
@@ -174,6 +182,7 @@ def state():
 
 def resume_job(body):
     with condition:
+        if shutting_down:raise ValueError("The bench is shutting down. Restart it before resuming.")
         jid=body.get('job')
         if any(j['id']==jid for j in [*queue,*running]):raise ValueError('This run is already queued or active.')
         manifest=saved_manifest(jid)
@@ -269,6 +278,9 @@ def clear_job(body):
         if changed:
             shutil.copy2(ROOT/'calibration.json',backup/'calibration-before.json')
             calibration.save_document(ROOT,doc)
+        scale_path=ROOT/'model-scale.json'
+        if scale_path.exists():shutil.copy2(scale_path,backup/'model-scale-before.json')
+        model_scale.remove_reference(ROOT,{'evaluation_id':jid},missing_ok=True)
         kept=[]
         for line in lines:
             try:r=json.loads(line)
@@ -320,6 +332,9 @@ def worker():
                     skip=wrong_streak>=stop_limit
                     if missing:
                         with condition:job['current_task']=tid
+                        qstart=time.time();qmono=time.monotonic();token=uuid.uuid4().hex
+                        job['active_question']={'token':token,'task':tid,'started_at':qstart,'elapsed_before_s':job.get('question_elapsed_s',{}).get(tid,0)}
+                        calibration.update_evaluation(ROOT,job)
                         cmd=[sys.executable,'-u',str(ROOT/'hourglass.py'),'run',tid,'--model',job['model'],
                              '--config',str(config_path),'--repeat',str(expected[tid]),'--repeat-indices',','.join(map(str,missing))]
                         log.write(f"\n=== {tid} · repeats {','.join(map(str,missing))} ===\n");log.flush()
@@ -327,7 +342,7 @@ def worker():
                             if job.get('stop_requested'):
                                 job.update(state='stopped',error=None);break
                             proc=subprocess.Popen(cmd,cwd=ROOT,stdout=log,stderr=subprocess.STDOUT,start_new_session=True,
-                                                  env=dict(os.environ,NODE_ID=os.environ.get('NODE_ID','unknown'),HOURGLASS_EVALUATION_ID=job['id'],HOURGLASS_SCORING_POLICY=job.get('scoring_policy',scoring_policy.LEGACY),HOURGLASS_SKIP_REASON='wrong_streak_limit' if skip else '',HOURGLASS_STOP_AFTER_WRONG=str(stop_limit)))
+                                                  env=dict(os.environ,HOURGLASS_CONTROLLER_PID=str(os.getpid()),HOURGLASS_QUESTION_TOKEN=token,HOURGLASS_QUESTION_TASK=tid,HOURGLASS_QUESTION_STARTED_AT=str(qstart),HOURGLASS_QUESTION_STARTED_MONOTONIC=str(qmono),NODE_ID=os.environ.get('NODE_ID','unknown'),HOURGLASS_EVALUATION_ID=job['id'],HOURGLASS_SCORING_POLICY=job.get('scoring_policy',scoring_policy.LEGACY),HOURGLASS_SKIP_REASON='wrong_streak_limit' if skip else '',HOURGLASS_STOP_AFTER_WRONG=str(stop_limit)))
                             job['_process']=proc
                         rc=proc.wait()
                         with condition:job.pop('_process',None)
@@ -360,6 +375,31 @@ def worker():
                 running.remove(job);done.append(job);condition.notify_all();calibration.update_evaluation(ROOT,job)
             if job.get('stop_reason')=='hour_limit' or job['state']=='completed':hour_deadline.chime()
 
+def persist_recovery(path, manifest):
+    recovered=run_recovery.recover(ROOT,manifest)
+    if recovered is None:return manifest
+    restored,evidence=recovered
+    backup=ROOT/'backups'/('recovered-run-'+time.strftime('%Y%m%dT%H%M%SZ',time.gmtime())+'-'+uuid.uuid4().hex[:8]+'-'+manifest['id'])
+    backup.mkdir(parents=True)
+    calibration.write(backup/'evaluation-before.json',manifest)
+    for proof in evidence.pop('files'):shutil.copy2(proof,backup/proof.name)
+    calibration.write(backup/'recovery.json',evidence)
+    calibration.write(path,restored)
+    return restored
+
+
+def refresh_recovered_history():
+    # A worker may still be draining when a replacement controller starts.
+    with condition:
+        if running or queue:return
+        for job in done:
+            if not job.get('hour_timing_unknown'):continue
+            manifest=saved_manifest(job['id'])
+            result_store.reconcile(ROOT,manifest)
+            restored=persist_recovery(ROOT/'evaluations'/(job['id']+'.json'),manifest)
+            if not restored.get('hour_timing_unknown'):job.update(restored)
+
+
 def restore_job_history():
     # Preserve visible activity/log links across a UI restart; never replay model work.
     known={j['id'] for j in done}
@@ -367,6 +407,8 @@ def restore_job_history():
         m=read_json(path,{})
         if not m.get('id') or m['id'] in known:continue
         state=m.get('state','error')
+        if state in ('pending','running','error') or m.get('hour_timing_unknown'):
+            result_store.reconcile(ROOT,m)
         if state in ('pending','running'):
             state='error'
             prior=dict(m)
@@ -382,17 +424,7 @@ def restore_job_history():
             backup.mkdir(parents=True,exist_ok=True)
             calibration.write(backup/'evaluation-before.json',prior)
             calibration.write(path,m)
-        recovered=run_recovery.recover(ROOT,m)
-        if recovered is not None:
-            restored,evidence=recovered
-            backup=ROOT/'backups'/('recovered-run-'+time.strftime('%Y%m%dT%H%M%SZ',time.gmtime())+'-'+m['id'])
-            backup.mkdir(parents=True,exist_ok=True)
-            calibration.write(backup/'evaluation-before.json',m)
-            for proof in evidence.pop('files'):
-                shutil.copy2(proof,backup/proof.name)
-            calibration.write(backup/'recovery.json',evidence)
-            calibration.write(path,restored)
-            m=restored;state=m['state']
+        m=persist_recovery(path,m);state=m.get('state',state)
         done.append({**m,'state':state,'tasks':m.get('order') or [t['task'] for t in m['expected']],
                      'total_tasks':len(m['expected']), 'label':m.get('label',m['model']+' · saved evaluation')})
 
@@ -418,6 +450,7 @@ def enqueue(body):
          'repeat':repeat,'stop_after_wrong':run_tracking.STOP_AFTER_WRONG,'state':'pending','created':time.time(),'completed_tasks':0,'total_tasks':len(tids)}
     config=next(m for m in model_document()['models'] if m['name']==model)
     with condition:
+        if shutting_down:raise ValueError('The bench is shutting down. Restart it before starting a run.')
         if 'hardware_revision' in body and body['hardware_revision']!=endpoint_hardware.revision(endpoint_hardware.load(ROOT)):
             raise ValueError('Hardware settings changed after review. Refresh and review the run again.')
         source=saved_manifest(body['copy_from']) if body.get('copy_from') else None
@@ -465,8 +498,11 @@ class H(BaseHTTPRequestHandler):
             except ValueError as e:self._json({'error':str(e)},400)
             return
         if u.path=='/api/state':self._json(state());return
+        if u.path=='/api/model-scale':
+            with condition:self._json(model_scale.report(ROOT,result_rows(),[*queue,*running,*done]))
+            return
         if u.path=='/api/calibration':self._json(calibration.report(ROOT,result_rows()));return
-        if u.path=='/api/health':self._json({'app':'Hourglass Bench','version':2,'benchmark_version':hourglass.BENCHMARK_VERSION});return
+        if u.path=='/api/health':self._json({'app':'Hourglass Bench','version':2,'benchmark_version':hourglass.BENCHMARK_VERSION,'shutdown_api':1,'workspace_key':workspace_key(),'controller_instance':controller_instance,'shutting_down':shutting_down});return
         if u.path in ('/api/log','/api/log/full'):
             jid=q.get('job',[''])[0]
             if not jid.isalnum():self._json({'error':'Invalid job'},400);return
@@ -508,6 +544,16 @@ class H(BaseHTTPRequestHandler):
             b=json.loads(self.rfile.read(n)) if n else {}
             if not isinstance(b,dict):raise ValueError('Expected a JSON object')
             route=urlparse(self.path).path
+            if route=='/api/shutdown':
+                if b.get('controller_instance')!=controller_instance:raise ValueError('The controller changed. Refresh its identity before stopping.')
+                request_shutdown(self.server)
+                self._json({'ok':True});return
+            if route=='/api/model-scale/reference':
+                with condition:result=model_scale.set_reference(ROOT,result_rows(),b,[*queue,*running,*done])
+                self._json({'ok':True,'revision':result['revision']});return
+            if route=='/api/model-scale/remove':
+                with condition:model_scale.remove_reference(ROOT,b)
+                self._json({'ok':True});return
             if route=='/api/calibration/reference':
                 scope=calibration.set_reference(ROOT,result_rows(),b);self._json({'ok':True,'scope':scope});return
             if route=='/api/calibration/remove':
@@ -556,11 +602,40 @@ class H(BaseHTTPRequestHandler):
         except subprocess.TimeoutExpired:self._json({'error':'The operation timed out. No model settings were changed.'},504)
         except Exception as e:self._json({'error':str(e)},500)
 
+def workspace_key():
+    return hashlib.sha256(str(ROOT.resolve()).encode()).hexdigest()
+
+
+def request_shutdown(server):
+    global shutting_down,worker_stop
+    with condition:
+        if shutting_down:return
+        shutting_down=True;worker_stop=True
+        for job in list(queue):
+            queue.remove(job);job.update(state='cancelled',ended=time.time());done.append(job)
+            calibration.update_evaluation(ROOT,job)
+        for job in list(running):stop_job({'job':job['id']})
+        condition.notify_all()
+    def drain():
+        if worker_thread:worker_thread.join()
+        server.shutdown()
+    threading.Thread(target=drain,daemon=True).start()
+
+
+def serve(server):
+    previous={sig:signal.getsignal(sig) for sig in (signal.SIGINT,signal.SIGTERM,signal.SIGHUP)}
+    for sig in previous:signal.signal(sig,lambda *_:request_shutdown(server))
+    try:server.serve_forever()
+    finally:
+        request_shutdown(server)
+        if worker_thread:worker_thread.join()
+        server.server_close()
+        for sig,handler in previous.items():signal.signal(sig,handler)
+
+
 def main():
     server=ThreadingHTTPServer(('127.0.0.1',PORT),H)
     start_worker()
     print(f'Hourglass Bench → http://127.0.0.1:{PORT}',flush=True)
-    try:server.serve_forever()
-    except KeyboardInterrupt:pass
-    finally:server.server_close()
+    serve(server)
 if __name__=='__main__':main()

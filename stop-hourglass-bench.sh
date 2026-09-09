@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 exec python3 - "$@" <<'PY'
-import json, os, pathlib, signal, subprocess, sys, time, urllib.error, urllib.request
+import hashlib, json, os, pathlib, signal, subprocess, sys, time, urllib.error, urllib.request
 
 root = pathlib.Path.cwd()
 port = int(os.environ.get('HOURGLASS_PORT', '4534'))
@@ -39,42 +39,62 @@ try:
     if pid is None:
         print('The bench UI is already stopped.')
     else:
-        if request('/api/health').get('app') not in ('Hourglass Bench', 'JordiBench'):
+        health = request('/api/health')
+        if health.get('app') not in ('Hourglass Bench', 'JordiBench'):
             raise RuntimeError('The listener did not identify itself as Hourglass Bench.')
-        deadline = time.monotonic() + 120
-        requested = set()
-        print('Stopping tests and waiting for results to be saved…', flush=True)
-        while True:
-            jobs = request('/api/state')['jobs']
-            # Cancel waiting work before stopping the active run.
-            for job in jobs['pending']:
+        if health.get('shutdown_api') == 1:
+            expected = hashlib.sha256(str(root.resolve()).encode()).hexdigest()
+            if health.get('workspace_key') != expected:
+                raise RuntimeError('The UI belongs to another checkout; leaving it untouched.')
+            instance = health['controller_instance']
+            request('/api/shutdown', {'controller_instance': instance})
+            print('Stopping tests and waiting for saved results…', flush=True)
+            deadline = time.monotonic() + 120
+            while listener(port, 'launch.py') == pid:
                 try:
-                    request('/api/cancel', {'job': job['id']})
-                except urllib.error.HTTPError as error:
-                    if error.code != 400:
-                        raise
-            for job in jobs['running']:
-                if job['id'] not in requested:
+                    current = request('/api/health')
+                except urllib.error.URLError:
+                    current = None
+                if current and current.get('controller_instance') != instance:
+                    raise RuntimeError('The UI changed during shutdown; leaving the replacement untouched.')
+                if time.monotonic() >= deadline:
+                    raise RuntimeError('Shutdown is still pending. No forced termination was used; check its log.')
+                time.sleep(.25)
+        else:
+            deadline = time.monotonic() + 120
+            requested = set()
+            print('Stopping tests and waiting for results to be saved…', flush=True)
+            while True:
+                jobs = request('/api/state')['jobs']
+                # Cancel waiting work before stopping the active run.
+                for job in jobs['pending']:
                     try:
-                        request('/api/stop', {'job': job['id']})
-                        requested.add(job['id'])
+                        request('/api/cancel', {'job': job['id']})
                     except urllib.error.HTTPError as error:
                         if error.code != 400:
                             raise
-            if not jobs['running'] and not jobs['pending']:
-                break
-            if time.monotonic() >= deadline:
-                raise RuntimeError('Shutdown is still pending. The UI was left running to protect the run; check its log.')
-            time.sleep(0.5)
-        if listener(port, 'launch.py') != pid:
-            raise RuntimeError('The UI process changed during shutdown; leaving it untouched.')
-        os.kill(pid, signal.SIGINT)
-        for _ in range(40):
-            if listener(port, 'launch.py') is None:
-                break
-            time.sleep(0.25)
-        else:
-            raise RuntimeError('The UI has not exited yet; no forced termination was used.')
+                for job in jobs['running']:
+                    if job['id'] not in requested:
+                        try:
+                            request('/api/stop', {'job': job['id']})
+                            requested.add(job['id'])
+                        except urllib.error.HTTPError as error:
+                            if error.code != 400:
+                                raise
+                if not jobs['running'] and not jobs['pending']:
+                    break
+                if time.monotonic() >= deadline:
+                    raise RuntimeError('Shutdown is still pending. The UI was left running to protect the run; check its log.')
+                time.sleep(0.5)
+            if listener(port, 'launch.py') != pid:
+                raise RuntimeError('The UI process changed during shutdown; leaving it untouched.')
+            os.kill(pid, signal.SIGINT)
+            for _ in range(40):
+                if listener(port, 'launch.py') is None:
+                    break
+                time.sleep(0.25)
+            else:
+                raise RuntimeError('The UI has not exited yet; no forced termination was used.')
         print('Bench stopped. Saved results are retained.')
     helper = listener(port + 20, 'score_publisher.py')
     if helper is not None:

@@ -65,7 +65,7 @@ def update_evaluation(root, job):
         path = root / 'evaluations' / (job['id'] + '.json')
         manifest = read(path, None)
         if manifest:
-            manifest.update({k: job[k] for k in ('started', 'ended', 'state', 'error', 'rc', 'completed_tasks', 'total_tasks', 'label', 'stopped_after', 'current_task', 'repeat', 'elapsed_s', 'active_started', 'resume_count', 'resume_versions','active_intervals','hour_timing_unknown','stop_reason') if k in job})
+            manifest.update({k: job[k] for k in ('started', 'ended', 'state', 'error', 'rc', 'completed_tasks', 'total_tasks', 'label', 'stopped_after', 'current_task', 'repeat', 'elapsed_s', 'active_started', 'resume_count', 'resume_versions','active_intervals','active_question','hour_timing_unknown','stop_reason') if k in job})
             write(path, manifest)
 
 

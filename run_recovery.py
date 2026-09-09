@@ -7,6 +7,55 @@ import math
 from pathlib import Path
 
 
+def read_rows(root, jid):
+    path=Path(root)/'results'/'results.jsonl'
+    rows=[]
+    if path.exists():
+        for line in path.read_text().splitlines():
+            try:
+                record=json.loads(line)
+                if isinstance(record,dict) and record.get('evaluation_id')==jid:rows.append(record)
+            except ValueError:pass
+    return rows
+
+
+def recover_receipt(root, manifest):
+    try:
+        context=manifest['active_question'];token=context['token'];jid=manifest['id']
+        if not isinstance(token,str) or not isinstance(jid,str) or not token.isalnum() or not jid.isalnum():return None
+        file=Path(root)/'logs'/f'worker-{jid}-{token}.json'
+        receipt=json.loads(file.read_text())
+        if receipt.get('version')!='worker-lifecycle-v1' or receipt.get('phase') not in ('stopped','completed','error'):return None
+        if any(receipt.get(k)!=value for k,value in [('evaluation_id',jid),('token',token),('task',context['task']),('started_at',context['started_at'])]):return None
+        intervals=copy.deepcopy(manifest['active_intervals'])
+        if not intervals or intervals[-1].get('end') is not None:return None
+        ended=receipt['ended_at'];duration=receipt['elapsed_s'];started=context['started_at']
+        if any(type(v) not in (int,float) or not math.isfinite(v) for v in (ended,duration,started)):return None
+        if any(type(p.get('start')) not in (int,float) or not math.isfinite(p['start']) for p in intervals):return None
+        if not intervals[-1]['start']<=started<=ended or duration<0 or abs(duration-(ended-started))>2:return None
+        before=context.get('elapsed_before_s',0)
+        if type(before) not in (int,float) or not math.isfinite(before) or before<0:return None
+        for index,part in enumerate(intervals[:-1]):
+            if type(part.get('end')) not in (int,float) or not math.isfinite(part['end']):return None
+            if not part['start']<=part['end']<=intervals[index+1]['start']:return None
+        rows=read_rows(root,jid)
+        if any(dt.datetime.fromisoformat(r['ts']).timestamp()>ended for r in rows):return None
+        intervals[-1]['end']=ended
+        recovered=copy.deepcopy(manifest)
+        recovered.setdefault('question_elapsed_s',{})[context['task']]=context.get('elapsed_before_s',0)+duration
+        recovered.update(state='stopped',ended=ended,active_started=None,active_intervals=intervals,
+                         hour_timing_unknown=False,elapsed_s=sum(p['end']-p['start'] for p in intervals),
+                         current_task=context['task'],error=None,rc=130,stop_requested=False,
+                         stop_reason='controller_interrupted',completed_tasks=len({r['task'] for r in rows if r.get('status')=='completed'}))
+        evidence={'version':'worker-receipt-recovery-v1','task':context['task'],'worker_ended_at':ended,
+                  'active_seconds':recovered['elapsed_s'],'question_seconds_charged':duration,
+                  'receipt_sha256':hashlib.sha256(file.read_bytes()).hexdigest(),
+                  'note':'Recovered from the matching worker exit receipt. Completed answers retained; downtime excluded.'}
+        recovered.setdefault('timing_recoveries',[]).append(evidence)
+        return recovered,{**evidence,'files':[file]}
+    except (OSError,ValueError,KeyError,TypeError,AttributeError):return None
+
+
 def recover(root, manifest):
     """Return a recovered manifest and evidence, or None when proof is incomplete.
 
@@ -16,6 +65,8 @@ def recover(root, manifest):
     if not manifest.get('hour_timing_unknown'):
         return None
     root = Path(root).resolve()
+    if manifest.get('active_question'):
+        return recover_receipt(root,manifest)
     try:
         intervals = copy.deepcopy(manifest['active_intervals'])
         if not intervals or intervals[-1].get('end') is not None:
@@ -52,9 +103,7 @@ def recover(root, manifest):
         ended = proof_path.stat().st_mtime
         if not start <= attempt['started'] <= phase['at'] <= ended <= phase['at'] + 60:
             return None
-        records_path = root/'results'/'results.jsonl'
-        records = [json.loads(line) for line in records_path.read_text().splitlines() if line.strip()] if records_path.exists() else []
-        rows = [r for r in records if r.get('evaluation_id') == jid]
+        rows = read_rows(root,jid)
         timestamps = [dt.datetime.fromisoformat(r['ts']).timestamp() for r in rows]
         if any(t > attempt['started'] for t in timestamps):
             return None  # Evidence belongs to an older attempt.

@@ -4,6 +4,9 @@ import math
 
 COLORS=('#177b61','#5079c1','#bd7c39','#a26c99','#469aac','#9a9450')
 
+def color_for(index):
+    return COLORS[index] if index<len(COLORS) else f'hsl({(index*137.508)%360:.1f},52%,42%)'
+
 def rules_label(report):
     version=report.get('benchmark_version') or 'unknown'
     policy=report.get('scoring') or 'unknown scoring'
@@ -49,8 +52,8 @@ def measured_points(curve):
     return points
 
 
-def progress_chart(reports,scope='same'):
-    width=1100;height=620+len(reports)*77;left,right,top,bottom=82,1030,132,446
+def progress_chart(reports,scope='same',legend=True):
+    width=1100;height=700+math.ceil(len(reports)/2)*64 if legend else 660;left,right,top,bottom=82,1030,132,560
     values=[0,1]+[p['weighted'] for r in reports for p in r['curve']]+[r['weighted_points'] for r in reports]
     ymin,ymax=min(values),max(values);span=ymax-ymin
     ymin-=span*.04 if ymin<0 else 0;ymax+=span*.04
@@ -70,14 +73,20 @@ def progress_chart(reports,scope='same'):
         xx=x(minute*60);out.append(f'<text x="{xx}" y="{bottom+27}" text-anchor="middle" font-size="12" fill="#78897f">{minute}</text>')
     out.append(f'<text x="{(left+right)/2}" y="{bottom+52}" text-anchor="middle" font-size="12" fill="#78897f">ACTIVE MINUTES</text>')
     for i,r in enumerate(reports):
-        color=COLORS[i%len(COLORS)];points=step_points(r['curve']);coords=' '.join(f"{x(p['seconds']):.2f},{y(p['weighted']):.2f}" for p in points)
+        color=color_for(i);points=step_points(r['curve']);coords=' '.join(f"{x(p['seconds']):.2f},{y(p['weighted']):.2f}" for p in points)
         dash=' stroke-dasharray="7 5"' if r.get('state')!='final' else ''
         out.append(f'<polyline points="{coords}" fill="none" stroke="{color}" stroke-width="{4.5 if r.get('is_current_run') else 2.2}" stroke-linecap="round" stroke-linejoin="round"{dash}/>')
         for p in measured_points(r['curve'])[1:]:
             out.append(f'<circle cx="{x(p["seconds"]):.2f}" cy="{y(p["weighted"]):.2f}" r="3.6" fill="white" stroke="{color}" stroke-width="2"><title>{esc(r["model"])}: {p["weighted"]:.2f} points at {p["seconds"]/60:.2f} active minutes</title></circle>')
-        yy=547+i*77;star='*' if r.get('clock_adjustment_seconds') else '';a=r.get('auc',{}).get('point_minutes') if r.get('auc',{}).get('state')=='final' else None;auc_label=f' · AUC {a:.2f} point-min' if a is not None else ' · AUC pending' if r.get('auc') else ''
-        name=r['model']+(' · CURRENT RUN' if r.get('is_current_run') else '');short=name if len(name)<=102 else name[:99]+'…'
-        out.append(f'<path d="M40 {yy-5}H66" stroke="{color}" stroke-width="3"{dash}/><text x="78" y="{yy}" font-size="14" font-weight="600"><title>{esc(name)}</title>{esc(short)}</text><text x="78" y="{yy+21}" font-size="12" fill="#71827a">{r["weighted_points"]:.2f}{star} points · {r.get("raw_correct",0)} correct · {esc(r.get("state","unknown"))}{auc_label}</text><text x="78" y="{yy+39}" font-size="11" fill="#71827a">{esc(r.get("hardware",{}).get("label","Hardware not recorded"))} · {esc(rules_label(r))}</text>')
+        if legend:
+            xx=40+(i%2)*530;yy=653+(i//2)*64
+            star='*' if r.get('clock_adjustment_seconds') else ''
+            name=r['model']+(' · CURRENT RUN' if r.get('is_current_run') else '')
+            short=name if len(name)<=57 else name[:54]+'…'
+            meta=r.get('hardware',{}).get('label','Hardware not recorded')+' · '+rules_label(r)
+            short_meta=meta if len(meta)<=88 else meta[:85]+'…'
+            detail=f'{r["weighted_points"]:.2f}{star} points · {r.get("raw_correct",0)} correct · {r.get("state","unknown")}'
+            out.append(f'<path d="M{xx} {yy-5}h22" stroke="{color}" stroke-width="3"{dash}/><text x="{xx+30}" y="{yy}" font-size="12" font-weight="600"><title>{esc(name)}</title>{esc(short)}</text><text x="{xx+30}" y="{yy+18}" font-size="11" fill="#71827a">{esc(detail)}</text><text x="{xx+30}" y="{yy+34}" font-size="10" fill="#71827a"><title>{esc(r.get("hardware",{}).get("label","Hardware not recorded"))} · {esc(rules_label(r))}</title>{esc(short_meta)}</text>')
     out.append(f'<text x="40" y="{height-27}" font-size="11" fill="#71827a">Each step marks the score after a final submission. AUC is the area under this exact step graph.</text>')
     if any(r.get('clock_adjustment_seconds') for r in reports):out.append(f'<text x="40" y="{height-10}" font-size="10" fill="#71827a">*Includes a disclosed clock adjustment.</text>')
     out.append('</g></svg>');return ''.join(out)

@@ -24,7 +24,7 @@ class NegativeMarking(HourScoreTests):
   self.assertIn('Zero points',svg)
   import re
   coords=re.search(r'<polyline points="([^"]+)',svg).group(1).split()
-  self.assertTrue(all(132<=float(p.split(',')[1])<=446 for p in coords))
+  self.assertTrue(all(132<=float(p.split(',')[1])<=560 for p in coords))
  def test_schema_distinguishes_answer_and_abstention(self):
   schema,text=scoring_policy.submission({'value':{'type':'number'}},2,scoring_policy.WITH_ABSTENTION)
   self.assertIn('loses 1 point',text);self.assertIn('2 points',text)

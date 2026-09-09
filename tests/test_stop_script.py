@@ -1,3 +1,4 @@
+import hashlib
 import contextlib
 import io
 import json
@@ -9,6 +10,28 @@ from unittest.mock import patch
 
 
 class StopScriptTests(unittest.TestCase):
+    def test_modern_shutdown_uses_instance_and_never_signals_ui(self):
+        code=Path('stop-hourglass-bench.sh').read_text().split("<<'PY'\n",1)[1].rsplit('\nPY',1)[0]
+        root=Path.cwd();requested=False;events=[]
+        def run(args, **kwargs):
+            return SimpleNamespace(stdout='' if requested or '4554' in ' '.join(args) else '123\n')
+        def output(args, **kwargs):
+            return 'python3 launch.py --no-open' if args[0]=='/bin/ps' else 'p123\nn'+str(root)+'\n'
+        def urlopen(request, **kwargs):
+            nonlocal requested
+            path=request.full_url.split(':4534')[1];events.append(path)
+            if path=='/api/health':
+                data={'app':'Hourglass Bench','shutdown_api':1,'workspace_key':hashlib.sha256(str(root.resolve()).encode()).hexdigest(),'controller_instance':'instance'}
+            else:
+                self.assertEqual(path,'/api/shutdown')
+                self.assertEqual(json.loads(request.data),{'controller_instance':'instance'})
+                requested=True;data={'ok':True}
+            return io.StringIO(json.dumps(data))
+        with patch('sys.argv',['stop']),patch.dict('os.environ',{'HOURGLASS_PORT':'4534','HOURGLASS_PORT':'4534'}),patch('subprocess.run',side_effect=run),patch('subprocess.check_output',side_effect=output),patch('urllib.request.urlopen',side_effect=urlopen),patch('os.kill') as kill,contextlib.redirect_stdout(io.StringIO()):
+            exec(compile(code,'stop-script','exec'),{})
+        self.assertTrue(requested);kill.assert_not_called()
+        self.assertEqual(events,['/api/health','/api/shutdown'])
+
     def test_waits_for_saved_state_before_stopping_only_the_ui(self):
         code=Path('stop-hourglass-bench.sh').read_text().split("<<'PY'\n",1)[1].rsplit('\nPY',1)[0]
         events=[];snapshots=0;killed=False
@@ -31,7 +54,7 @@ class StopScriptTests(unittest.TestCase):
             self.assertGreaterEqual(snapshots,3)
             self.assertEqual((pid,sig),(123,signal.SIGINT))
             killed=True
-        with patch('sys.argv',['stop']),patch.dict('os.environ',{'JORDI_PORT':'4534','HOURGLASS_PORT':'4534'}),patch('subprocess.run',side_effect=run),patch('subprocess.check_output',side_effect=output),patch('urllib.request.urlopen',side_effect=urlopen),patch('os.kill',side_effect=kill),patch('time.sleep'),contextlib.redirect_stdout(io.StringIO()):
+        with patch('sys.argv',['stop']),patch.dict('os.environ',{'HOURGLASS_PORT':'4534','HOURGLASS_PORT':'4534'}),patch('subprocess.run',side_effect=run),patch('subprocess.check_output',side_effect=output),patch('urllib.request.urlopen',side_effect=urlopen),patch('os.kill',side_effect=kill),patch('time.sleep'),contextlib.redirect_stdout(io.StringIO()):
             exec(compile(code,'stop-script','exec'),{})
         self.assertTrue(killed)
         self.assertLess(events.index('/api/cancel'),events.index('/api/stop'))
