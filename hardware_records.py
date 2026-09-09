@@ -43,7 +43,49 @@ def capture(root,config):
 
 
 def recorded(root,manifest):
-    if manifest.get('hardware'):return manifest['hardware']
     path=root/'hardware-records'/(manifest['id']+'.json')
-    if path.exists():return json.loads(path.read_text())
+    attachment=json.loads(path.read_text()) if path.exists() else None
+    if attachment and attachment.get('source')=='owner recorded':return attachment
+    if manifest.get('hardware'):return manifest['hardware']
+    if attachment:return attachment
     return {'machine_key':'unknown-'+hashlib.sha256(manifest['id'].encode()).hexdigest(),'label':'Hardware not recorded','source':'unknown'}
+
+
+def revision(record):
+    return hashlib.sha256(json.dumps(record,sort_keys=True).encode()).hexdigest()
+
+
+def save_user_record(root,manifest,fields,known_machines,expected_revision):
+    """An explicit per-run amendment; preserve frozen metadata and back up the prior view."""
+    import math
+    import shutil
+    current=recorded(root,manifest)
+    if revision(current)!=expected_revision:raise ValueError('Hardware changed since this preview. Refresh before saving.')
+    def string(key,required=False):
+        value=fields.get(key,'')
+        if not isinstance(value,str) or len(value)>160 or any(ord(c)<32 for c in value):raise ValueError('Invalid '+key+'.')
+        value=value.strip()
+        if required and not value:raise ValueError(key+' is required.')
+        return value
+    machine=fields.get('machine_key')
+    if machine=='new':machine=hashlib.sha256(uuid.uuid4().hex.encode()).hexdigest()
+    elif machine not in known_machines:raise ValueError('Select a recorded machine or create a new one.')
+    result={'machine_key':machine,'label':string('label',True),'chip':string('chip'),'source':'owner recorded','captured_at':dt.datetime.now(dt.timezone.utc).isoformat()}
+    for source,target,multiplier in [('memory_gib','memory_bytes',1024**3),('cpu_cores','cpu_cores',1)]:
+        value=fields.get(source)
+        if value in (None,''):continue
+        if isinstance(value,bool):raise ValueError('Invalid '+source+'.')
+        try:number=float(value)
+        except (TypeError,ValueError):raise ValueError('Invalid '+source+'.')
+        if not math.isfinite(number) or number<=0 or number>1000000 or (source=='cpu_cores' and not number.is_integer()):raise ValueError('Invalid '+source+'.')
+        result[target]=round(number*multiplier)
+    gpu=string('gpu')
+    if gpu:result['gpu']=[{'model':gpu}]
+    stamp=dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
+    backup=root/'backups'/('hardware-amendment-'+stamp);backup.mkdir(parents=True)
+    (backup/'previous-effective-hardware.json').write_text(json.dumps(current,indent=2)+'\n')
+    (backup/'DELTA.txt').write_text('Owner recorded hardware for evaluation '+manifest['id']+'. Frozen manifest and model settings remain unchanged. Restore the prior sidecar, or remove the new one if no sidecar existed, while no hardware edit is in progress.\n')
+    path=root/'hardware-records'/(manifest['id']+'.json');path.parent.mkdir(exist_ok=True)
+    if path.exists():shutil.copy2(path,backup/path.name)
+    temporary=path.with_suffix('.tmp');temporary.write_text(json.dumps(result,indent=2)+'\n');temporary.replace(path)
+    return result

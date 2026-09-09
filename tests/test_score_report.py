@@ -55,3 +55,14 @@ class WeightedReportTests(unittest.TestCase):
         self.assertNotIn('wrong-bank',files['comparison.svg']);self.assertNotIn('wrong-machine',files['comparison.svg'])
         self.assertEqual(data['reports'][0]['curve'][-1]['seconds'],600)
         self.assertIn('model-b',files['comparison.svg'])
+
+    def test_quadrant_export_encodes_speed_as_area_and_separates_machines(self):
+        import xml.etree.ElementTree as ET
+        base={'model':'a','hardware':{'label':'Test machine'},'machine_key':'one','bank_fingerprint':'same','scoring':'v','timing_policy':'h','benchmark_version':'test','state':'final','efficiency':{'token_data_complete':True,'accuracy':.9,'median_output_tokens':1000,'scored_answers':9,'answers_per_active_minute':1}}
+        other={**base,'model':'b','efficiency':{**base['efficiency'],'answers_per_active_minute':4}}
+        files=score_report.quadrants([base,other,{**base,'model':'wrong-machine','machine_key':'two'}]);svg=files['quadrants.svg']
+        self.assertNotIn('wrong-machine',svg)
+        circles=ET.fromstring(svg).findall('.//{http://www.w3.org/2000/svg}circle')
+        radii=sorted(float(c.attrib['r']) for c in circles)
+        self.assertEqual(radii,[10,20]);self.assertEqual((radii[1]/radii[0])**2,4)
+        self.assertIn('a',svg);self.assertIn('token efficiency',svg)

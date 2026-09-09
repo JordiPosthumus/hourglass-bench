@@ -44,7 +44,7 @@ function efficiencyStats(jobs,rows){
   return jobs.map(j=>{
     const rs=rows.filter(r=>r.evaluation_id===j.id&&r.status==='completed'&&r.termination!=='not_attempted'&&!['wrong_streak_limit','five_wrong_in_row'].includes(r.score_reason));
     if(!rs.length||rs.some(r=>typeof r.completion_tokens!=='number'||!Number.isFinite(r.completion_tokens)||r.completion_tokens<0))return null;
-    return {name:j.model+' · '+(rs[0].node||'machine unknown')+' · '+j.id.slice(0,8),model:j.model,n:rs.length,accuracy:rs.filter(r=>r.solved).length/rs.length,tokens:median(rs.map(r=>r.completion_tokens)),state:j.state};
+    return {name:j.model+' · '+(rs[0].node||'machine unknown')+' · '+j.id.slice(0,8),model:j.model,n:rs.length,accuracy:rs.filter(r=>r.solved).length/rs.length,tokens:median(rs.map(r=>r.completion_tokens)),speed:!j.hour_timing_unknown&&scoreFor(j).elapsed_s>0?rs.length/(scoreFor(j).elapsed_s/60):null,state:j.state};
   }).filter(Boolean);
 }
 function drawScatter(stats){
@@ -64,16 +64,17 @@ function drawScatter(stats){
   let html='<text x="80" y="27" fill="#505e56" font-size="14">Accuracy ↑</text>';
   const box=(bx,by,bw,bh,color)=>`<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" fill="${color}"/>`;
   html+=box(left,top,sx-left,sy-top,'#fff3d9')+box(sx,top,right-sx,sy-top,'#e0f1e4')+box(left,sy,sx-left,bottom-sy,'#f9e2df')+box(sx,sy,right-sx,bottom-sy,'#e8edf8');
-  html+=`<text x="${left+10}" y="${top+19}" fill="#876628" font-size="10">ACCURATE · MORE TOKENS</text><text x="${right-10}" y="${top+19}" text-anchor="end" fill="#28674f" font-size="10">ACCURATE · FEWER TOKENS ↗</text><text x="${left+10}" y="${bottom-12}" fill="#9a5048" font-size="10">LESS ACCURATE · MORE TOKENS</text><text x="${right-10}" y="${bottom-12}" text-anchor="end" fill="#506a94" font-size="10">LESS ACCURATE · FEWER TOKENS</text>`;
+  html+=`<text x="${left+10}" y="${top+40}" fill="#876628" font-size="10">ACCURATE · MORE TOKENS</text><text x="${right-10}" y="${top+40}" text-anchor="end" fill="#28674f" font-size="10">ACCURATE · FEWER TOKENS ↗</text><text x="${left+10}" y="${bottom-12}" fill="#9a5048" font-size="10">LESS ACCURATE · MORE TOKENS</text><text x="${right-10}" y="${bottom-12}" text-anchor="end" fill="#506a94" font-size="10">LESS ACCURATE · FEWER TOKENS</text>`;
   for(let i=0;i<=4;i++){const accuracy=accuracyMin+(accuracyMax-accuracyMin)*i/4,yy=y(accuracy);html+=`<line x1="80" x2="670" y1="${yy}" y2="${yy}" stroke="#ffffff" stroke-width="1.5"/><text x="64" y="${yy+5}" text-anchor="end" fill="#717b77" font-size="13">${(accuracy*100).toFixed(1)}%</text>`}
   html+=`<path d="M${sx} ${top}V${bottom}M${left} ${sy}H${right}" stroke="#9ca89e" stroke-dasharray="5 5"/>`;
   for(let i=0;i<=4;i++)html+=`<text x="${left+i*W/4}" y="442" text-anchor="middle" font-size="12" fill="#717b77">${fmt(tokenMax-(tokenMax-tokenMin)*i/4)}</text>`;
   html+='<text x="375" y="474" text-anchor="middle" font-size="14" fill="#505e56">Median output tokens per scored answer · fewer →</text>';
-  stats.forEach((s,i)=>{const color=colors[i%colors.length],px=x(s.tokens),py=y(s.accuracy);html+=`<circle cx="${px}" cy="${py}" r="10" fill="${color}" stroke="white" stroke-width="3"><title>${esc(s.name)}: ${(s.accuracy*100).toFixed(1)}% correct, median ${fmt(s.tokens)} output tokens, ${s.n} scored answers</title></circle><text x="${px}" y="${py-17}" text-anchor="${px>375?'end':'start'}" font-size="12" font-weight="600" fill="${color}">${esc(s.model)}</text>`});
+  const maxSpeed=Math.max(.000001,...stats.map(s=>s.speed||0));
+  stats.map((s,i)=>({s,i})).sort((a,b)=>(b.s.speed||0)-(a.s.speed||0)).forEach(({s,i})=>{const color=colors[i%colors.length],px=x(s.tokens),py=y(s.accuracy),radius=s.speed?20*Math.sqrt(s.speed/maxSpeed):6;html+=`<circle cx="${px}" cy="${py}" r="${radius}" fill="${color}" fill-opacity=".75" stroke="white" stroke-width="3"><title>${esc(s.name)}: ${(s.accuracy*100).toFixed(1)}% correct, median ${fmt(s.tokens)} output tokens, ${s.n} scored answers, ${s.speed==null?'speed unavailable':s.speed.toFixed(2)+' answers/min'}</title></circle><text x="${px}" y="${py-radius-8}" text-anchor="${px>375?'end':'start'}" font-size="12" font-weight="600" fill="${color}">${esc(s.model)}</text>`});
   if(!stats.length)html+='<text x="375" y="220" text-anchor="middle" fill="#717b77">No scored runs with complete output-token records</text>';
   $('scatter').innerHTML=html;
   $('quadrantGuide').textContent=`Axes fit the displayed data, with padding. Quadrants bisect both ranges at ${(accuracyGuide*100).toFixed(1)}% accuracy and ${fmt(tokenGuide)} output tokens. Scales update with the data; these are relative regions, not pass/fail grades.`;
-  $('scatterLegend').innerHTML=stats.map((s,i)=>`<div><span style="color:${colors[i%colors.length]}">${esc(s.name)}</span><small>${(s.accuracy*100).toFixed(1)}% correct · median ${fmt(s.tokens)} output tokens · ${s.n} scored answers · ${esc(s.state)}</small></div>`).join('');
+  $('scatterLegend').innerHTML=stats.map((s,i)=>`<div><span style="color:${colors[i%colors.length]}">${esc(s.name)}</span><small>${(s.accuracy*100).toFixed(1)}% correct · median ${fmt(s.tokens)} output tokens · ${s.n} scored answers · ${s.speed==null?'speed unavailable':s.speed.toFixed(2)+' answers/min'} · ${esc(s.state)}</small></div>`).join('');
 }
 
 for(const id of ['resultSearch','resultSection','resultStatus'])$(id).addEventListener(id==='resultSearch'?'input':'change',()=>S&&renderResults());
@@ -157,6 +158,7 @@ function renderLiveRun(){
 $('newRun').onclick=()=>{setPage('bench');selected=new Set(S.tasks.filter(t=>!t.issues.length).map(t=>t.id));$('search').value='';$('sectionFilter').value='';$('tierFilter').value='';updateSelection();$('runBuilder').scrollIntoView({behavior:'smooth',block:'center'});$('model').focus({preventScroll:true});toast(`${selected.size} questions selected. Choose a model and review your new run. Saved runs are retained.`)};
 $('liveRunSelect').onchange=()=>{liveRunId=$('liveRunSelect').value;renderLiveRun()};
 $('liveViewLog').onclick=()=>{logId=liveRunId;loadLog();$('logWrap').scrollIntoView({behavior:'smooth',block:'start'})};
+$('liveHardware').onclick=()=>{if(liveRunId)window.open('http://127.0.0.1:'+(Number(location.port)+20)+'/?job='+encodeURIComponent(liveRunId)+'#hardware','_blank')};
 $('liveScorePreview').onclick=()=>{if(liveRunId)window.open('http://127.0.0.1:'+(Number(location.port)+20)+'/?job='+encodeURIComponent(liveRunId),'_blank')};
 $('liveResume').onclick=()=>reviewResume(liveRunId);
 function reviewResume(id){
