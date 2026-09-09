@@ -72,11 +72,11 @@ def progress_chart(reports,scope='same'):
     for i,r in enumerate(reports):
         color=COLORS[i%len(COLORS)];points=step_points(r['curve']);coords=' '.join(f"{x(p['seconds']):.2f},{y(p['weighted']):.2f}" for p in points)
         dash=' stroke-dasharray="7 5"' if r.get('state')!='final' else ''
-        out.append(f'<polyline points="{coords}" fill="none" stroke="{color}" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"{dash}/>')
+        out.append(f'<polyline points="{coords}" fill="none" stroke="{color}" stroke-width="{4.5 if r.get('is_current_run') else 2.2}" stroke-linecap="round" stroke-linejoin="round"{dash}/>')
         for p in measured_points(r['curve'])[1:]:
             out.append(f'<circle cx="{x(p["seconds"]):.2f}" cy="{y(p["weighted"]):.2f}" r="3.6" fill="white" stroke="{color}" stroke-width="2"><title>{esc(r["model"])}: {p["weighted"]:.2f} points at {p["seconds"]/60:.2f} active minutes</title></circle>')
         yy=547+i*77;star='*' if r.get('clock_adjustment_seconds') else '';a=r.get('auc',{}).get('point_minutes') if r.get('auc',{}).get('state')=='final' else None;auc_label=f' · AUC {a:.2f} point-min' if a is not None else ' · AUC pending' if r.get('auc') else ''
-        name=r['model'];short=name if len(name)<=102 else name[:99]+'…'
+        name=r['model']+(' · CURRENT RUN' if r.get('is_current_run') else '');short=name if len(name)<=102 else name[:99]+'…'
         out.append(f'<path d="M40 {yy-5}H66" stroke="{color}" stroke-width="3"{dash}/><text x="78" y="{yy}" font-size="14" font-weight="600"><title>{esc(name)}</title>{esc(short)}</text><text x="78" y="{yy+21}" font-size="12" fill="#71827a">{r["weighted_points"]:.2f}{star} points · {r.get("raw_correct",0)} correct · {esc(r.get("state","unknown"))}{auc_label}</text><text x="78" y="{yy+39}" font-size="11" fill="#71827a">{esc(r.get("hardware",{}).get("label","Hardware not recorded"))} · {esc(rules_label(r))}</text>')
     out.append(f'<text x="40" y="{height-27}" font-size="11" fill="#71827a">Each step marks the score after a final submission. AUC is the area under this exact step graph.</text>')
     if any(r.get('clock_adjustment_seconds') for r in reports):out.append(f'<text x="40" y="{height-10}" font-size="10" fill="#71827a">*Includes a disclosed clock adjustment.</text>')

@@ -49,7 +49,7 @@ def build(root, job, rows, manifest):
             'created_at':dt.datetime.now(dt.timezone.utc).isoformat(),'scoring':h['scoring_policy'],'gross_points':h['gross_points'],'net_points':h['net_points'],'incorrect_questions':h['incorrect_questions'],'abstained_questions':h['abstained_questions'],'penalty_points':h['penalty_points'],
             'timing_policy':h['version'],'benchmark_version':manifest['benchmark_version'],
             'bank_fingerprint':hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest(),
-            'state':h['state'],'weighted_points':h['weighted_points'],'raw_correct':h['points'],
+            'is_current_run':job.get('state')=='running','state':h['state'],'weighted_points':h['weighted_points'],'raw_correct':h['points'],
             'completed_questions':h['completed_questions'],'total_questions':h['total_questions'],
             'active_seconds':round(h['elapsed_s'],3),'window_seconds':3600,
             'breakdown':h['breakdown'],'curve':points,
