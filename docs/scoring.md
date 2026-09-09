@@ -6,11 +6,11 @@ The clock starts when the queued evaluation begins executing. It includes model 
 
 Text and vision points add to the total. Wrong answers and execution errors are distinguished. Unfinished and unreached questions contribute zero without being presented as observed incorrect answers.
 
-Use one repeat per question. If you deliberately configure multiple repeats, any correct repeat inside the window can earn that question's one point; additional correct repeats cannot increase it. Compare only identical repeat policies.
+Use one repeat per question. If you deliberately configure multiple repeats, any correct repeat inside the window can earn that question's fixed weight; additional correct repeats cannot increase it. Compare only identical repeat policies.
 
 The UI shows an in-progress score while the hour is running. An early stopped run is partial unless all its questions finished. There is no extrapolation from early throughput. A model that completes the whole bank early receives its actual weighted score, with elapsed time retained as a diagnostic. If this creates a ceiling, expand your private bank and give the new bank a distinct scope.
 
-Questions run in ascending authored difficulty tier, alternating sections within a tier. These are labels, not empirically calibrated difficulty. Math education labels can be mapped to estimated scheduling tiers (1, 5, 9). The existing stop after 20 consecutive incorrect questions is retained and may end a run before one hour; such a score is partial.
+Questions run in repeated easy → medium → hard waves, rotating subjects within each band and skipping exhausted bands. Unknown difficulty follows classified questions. These authored labels are provisional; math education labels map to estimated scheduling tiers (1, 5, 9) when no numeric tier is supplied. See [the method: waves of questions](methodology.md), including the challenge insertion used by the private reference evaluation. The existing stop after 20 consecutive incorrect questions is retained and may end a run before one hour; such a score is partial.
 
 At the deadline the UI controller signals the benchmark process group, preserves completed attempts, and plays a system chime. The model server itself is not stopped. There are no separate short per-question, bash, or generation deadlines; there is no harness turn-count limit. Configured model output/context limits still apply.
 

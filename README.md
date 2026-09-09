@@ -23,6 +23,14 @@ Scores are comparable only when models use the **same questions, order, repeat p
 
 Difficulty weights are versioned as `weighted-hour-v1`; the active-clock boundary remains `hour-v1`. See [scoring](docs/scoring.md) for boundaries, partial runs, and repeat behavior.
 
+## Waves of questions
+
+Regular questions cycle through **easy → medium → hard**, rotating subjects within each difficulty band. This gives the early part of a run a mixture of difficulty and subject matter. The order is fixed before the run and does not adapt to the model's answers.
+
+The private version 2.2 reference evaluation adds a challenge after every four regular questions. The regular cycle continues across those insertions. Its 120-question bank remains private; the public runtime currently implements the regular waves.
+
+All waves share the same one-hour clock, with no separate short per-question limit. Time spent reasoning and checking answers reduces the time available for later questions. Read [the method: waves of questions](docs/methodology.md) for the sequence, challenge cadence, scoring rationale and comparison limits.
+
 ## Requirements
 
 The current supported environment is **macOS on Apple Silicon**, Python 3.10+, Git, and Node.js **22.19+**. The bundled frozen Pi dependency snapshot includes Darwin ARM64 binaries; other platforms are not currently validated. Sandboxing uses macOS `sandbox-exec`; the completion chime uses `afplay`.
