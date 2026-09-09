@@ -104,3 +104,7 @@ On a requested stop, the wrapper terminates Pi and drains stdout/stderr with `co
 Before upgrading frozen Pi, read `docs/frozen-pi.md`. Use a separately versioned snapshot, update its license/provenance and hash inventory, verify tools, unlimited turn behavior and shutdown, and preserve a rollback to the previous working snapshot. Do not patch model limits to make compatibility tests pass.
 
 Rollback only when the affected component is idle. Restore the exact backed-up files, preserve unrelated work, and validate live behavior. A final handoff should list current run state, whether the next model can start, code commits and CI, backups, measurements, unresolved work and any approval block. Do not describe source-only changes as already active.
+
+## Main-page charts
+
+The selected run shows the same taller cumulative weighted-score graph as the publishing preview, refreshed every 30 seconds through the independent helper. The Results scatter chart is separate: one model-labeled dot per run, with incorrect/scored-answer rate on the vertical axis and full active elapsed time on the horizontal axis. It respects the result filter for the answer rate, excludes execution failures and unattempted policy skips, and must not be mistaken for a matched-question comparison or median-attempt timing.

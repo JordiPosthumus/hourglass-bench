@@ -12,7 +12,7 @@ from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
 import score_report
 
-PAGE='''<!doctype html><meta charset="utf-8"><title>Publish Hourglass score</title><style>body{background:#101722;color:#eaf0fa;font:16px system-ui;max-width:850px;margin:40px auto}input,button{font:inherit;padding:10px;margin:8px}img{width:100%}pre{white-space:pre-wrap}a{color:#74e5c4}</style><h1>Publish score</h1><p>Review the exact five files before publishing. Reports contain aggregate results; questions, answers and traces are excluded.</p><img id="graph"><p id="files"></p><pre id="summary"></pre><label>GitHub repository <input id="repo" placeholder="owner/repository"></label><button id="publish" disabled>Publish these files to GitHub</button><p id="status"></p><script>
+PAGE='''<!doctype html><meta charset="utf-8"><title>Publish Hourglass score</title><style>body{background:#101722;color:#eaf0fa;font:16px system-ui;max-width:1400px;margin:32px auto;padding:0 28px}input,button{font:inherit;padding:10px;margin:8px}img{display:block;width:100%;height:auto;min-height:580px;max-height:none;background:#101722;border:1px solid #2c394a;border-radius:14px}pre{white-space:pre-wrap}a{color:#74e5c4}</style><h1>Score preview</h1><p>Each colored line shows one model’s accumulated weighted points on this machine. A step up means a correct answer; flat sections mean no additional points. Lines end when their recorded run ends.</p><p>Review the exact five files before publishing. Reports contain aggregate results; questions, answers and traces are excluded.</p><img id="graph"><p id="files"></p><pre id="summary"></pre><label>GitHub repository <input id="repo" placeholder="owner/repository"></label><button id="publish" disabled>Publish these files to GitHub</button><p id="status"></p><script>
 let token;const status=document.getElementById('status');async function init(){try{let r=await fetch('/api/preview?job='+encodeURIComponent(new URLSearchParams(location.search).get('job')));let d=await r.json();if(!r.ok)throw Error(d.error);token=d.token;document.getElementById('repo').value=d.repo;document.getElementById('graph').src='/file/'+token+'/comparison.svg';document.getElementById('files').innerHTML=['README.md','comparison.svg','comparison.json','report.json','score.svg'].map(n=>'<a target="_blank" href="/file/'+token+'/'+n+'">'+n+'</a>').join(' · ');document.getElementById('summary').textContent=d.summary;document.getElementById('publish').disabled=false}catch(e){status.textContent=e.message}}document.getElementById('publish').onclick=async()=>{const b=document.getElementById('publish');b.disabled=true;status.textContent='Publishing…';try{let r=await fetch('/api/publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,repo:document.getElementById('repo').value})});let d=await r.json();if(!r.ok)throw Error(d.error);status.textContent='Published: ';let a=document.createElement('a');a.href=d.url;a.textContent=d.url;status.append(a)}catch(e){status.textContent=e.message;b.disabled=false}};init();</script>'''
 
 
@@ -53,7 +53,7 @@ def server(root,port,source_port,repo=''):
                 if self.headers.get('Host')!=f'127.0.0.1:{port}':raise ValueError('Invalid host.')
                 u=urllib.parse.urlparse(self.path)
                 if u.path=='/':self.send(PAGE,'text/html; charset=utf-8');return
-                if u.path=='/api/preview':
+                if u.path in ('/api/preview','/chart.svg'):
                     jid=urllib.parse.parse_qs(u.query).get('job',[''])[0]
                     if not jid.isalnum():raise ValueError('Invalid run.')
                     with urllib.request.urlopen(f'http://127.0.0.1:{source_port}/api/state',timeout=15) as response:state=json.load(response)
@@ -72,6 +72,8 @@ def server(root,port,source_port,repo=''):
                         reports.append(candidate);seen.add(other['model'])
                     files.update(score_report.comparison(reports))
                     files['README.md']=files['README.md'].replace('![Score graph](score.svg)','![Models over time](comparison.svg)\n\n[Individual score graph](score.svg) · [Comparison data](comparison.json)')
+                    if u.path=='/chart.svg':
+                        self.send(files['comparison.svg'],'image/svg+xml');return
                     token=secrets.token_hex(12)
                     with lock:
                         if len(previews)>100:previews.pop(next(iter(previews)))
