@@ -18,6 +18,8 @@ For comparison, hold bank content and order, repeats, harness version, model con
 
 ## Publishing
 
-Use **Publish score** in Results to review an aggregate JSON file, SVG graph and README. Select `owner/repository` and click **Publish these files to GitHub**. Install the GitHub CLI and authenticate with `gh auth login` first. The repository must already have a branch. Publication adds a unique folder under `reports/` with a non-forced atomic commit; it never pushes the local working directory.
+Use **Publish score** in Results to review aggregate JSON data, individual and combined SVG graphs, and a README. Select `owner/repository` and click **Publish these files to GitHub**. Install the GitHub CLI and authenticate with `gh auth login` first. The repository must already have a branch. Publication adds the five reviewed files in a unique folder under `reports/` with a non-forced atomic commit; it never pushes the local working directory.
 
 The helper uses loopback port UI-port + 20. If occupied, free that port or select another UI port. Reports carry a bank/order/weight fingerprint and label unfinished runs as partial or in progress. No questions, answers, per-question IDs, raw traces, endpoints or credentials are exported. Hardware and model configuration disclosure is currently marked as not supplied.
+
+The combined chart shows the selected run plus the latest available run for each other model with the same bank/order/weight fingerprint, scoring policies and benchmark version. Each line ends at its actual elapsed time. Clearing a local run removes it from future comparisons. Settings and hardware still need equivalent disclosure for a fair comparison.

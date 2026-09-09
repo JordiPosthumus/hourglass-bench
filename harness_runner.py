@@ -3,6 +3,10 @@ import signal
 import base64, datetime, hashlib, json, mimetypes, pathlib, subprocess, tempfile, time, urllib.request
 ROOT=pathlib.Path(__file__).resolve().parent
 
+def stop_child(proc):
+    proc.terminate()
+    return proc.communicate()
+
 def server_metadata(cfg):
     root=cfg['base_url'].rstrip('/').removesuffix('/v1')
     snapshot={'temperature':None,'temperature_source':'server default — not reported','captured_at':datetime.datetime.now(datetime.timezone.utc).isoformat()}
@@ -61,7 +65,9 @@ def run(task,cfg,workdir,sandboxed):
         result=None;error=None;requested=[];thinking={"pi_thinking_level":None,"source":"not captured","server_reasoning_default":metadata.get("model",{}).get("capabilities",{}).get("reasoning",{}).get("default"),"server_effective_reasoning":None,"thinking_content_observed":False}
         proc=subprocess.Popen(['node',str(ROOT/'harness/pi.mjs'),str(request)],cwd=workdir,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
         def stop(_signum,_frame):
-            proc.terminate();proc.wait();raise SystemExit(130)
+            tail,stderr=stop_child(proc)
+            (workdir/'interrupted-pi-trace.json').write_text(json.dumps({'trace':trace,'remaining_stdout':tail,'stderr':stderr},indent=1))
+            raise SystemExit(130)
         previous=signal.signal(signal.SIGTERM,stop)
         for line in proc.stdout:
             try:item=json.loads(line)

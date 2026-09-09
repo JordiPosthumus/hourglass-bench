@@ -52,3 +52,37 @@ def build(root, job, rows, manifest):
     readme=f"# Hourglass Bench result\n\n![Score graph](score.svg)\n\nModel: {report['model'].replace(chr(10),' ')}\n\n**{h['weighted_points']:.2f} weighted points{star}**, {h['points']} correct. Status: **{h['state']}**.\n\nFixed difficulty weights: charts 1–10 → 1–2; games 1–5 → 1–2; math high school / undergraduate / graduate → 1 / 1.5 / 2. One award per question within 3,600 active seconds.\n\nBank fingerprint: `{report['bank_fingerprint']}`. Compare the same bank, order, repeat policy, model settings and hardware. Hardware and configuration disclosure has not been supplied.\n\n[Aggregate data](report.json)\n"
     if credits:readme+='\n<sub>*Clock adjusted to exclude a harness interruption.</sub>\n'
     return {'report.json':json.dumps(report,indent=2)+'\n','score.svg':svg,'README.md':readme}
+
+
+def comparison(reports):
+    """Overlay only reports from the same bank, order and score policy."""
+    if not reports:raise ValueError('No reports to compare.')
+    reference=reports[0]
+    keys=('bank_fingerprint','scoring','timing_policy','benchmark_version')
+    compatible=[r for r in reports if all(r.get(k)==reference.get(k) for k in keys)]
+    maximum=max(1,max(r['weighted_points'] for r in compatible))
+    import math
+    ymax=max(2,math.ceil(maximum/2)*2)
+    colors=['#74e5c4','#9aaaff','#ffbf69','#f58aaa','#7ed5ff','#d5adff','#f5e384','#a9db80']
+    height=390+len(compatible)*29
+    elements=[f'<svg xmlns="http://www.w3.org/2000/svg" width="900" height="{height}" viewBox="0 0 900 {height}"><rect width="900" height="{height}" fill="#101722"/><g font-family="sans-serif" fill="#eaf0fa">',
+              '<text x="45" y="38" font-size="24">Hourglass Bench · models over time</text>',
+              '<text x="45" y="65" font-size="13">Weighted points · same question bank and order · active wall clock</text>']
+    for i in range(5):
+        value=ymax*i/4;y=290-i*47.5
+        elements.append(f'<path d="M65 {y}H850" stroke="#2c394a"/><text x="27" y="{y+5}" font-size="12">{value:g}</text>')
+    for minute in range(0,61,10):
+        x=65+minute/60*785
+        elements.append(f'<text x="{x-8}" y="315" font-size="12">{minute}</text>')
+    elements.append('<text x="390" y="341" font-size="13">Active minutes</text>')
+    for i,r in enumerate(compatible):
+        color=colors[i%len(colors)]
+        points=' '.join(f"{65+p['seconds']/3600*785:.2f},{290-p['weighted']/ymax*190:.2f}" for p in r['curve'])
+        y=377+i*29;star='*' if r.get('clock_adjustment_seconds') else ''
+        label=html.escape(f"{r['model']} · {r['weighted_points']:.2f}{star} · {r['raw_correct']} correct · {r['state']}")
+        dash=' stroke-dasharray="7 3"' if i>=len(colors) else ''
+        elements.append(f'<polyline points="{points}" fill="none" stroke="{color}" stroke-width="2.5"{dash}/><path d="M45 {y-4}H70" stroke="{color}" stroke-width="3"{dash}/><text x="82" y="{y}" font-size="13">{label}</text>')
+    if any(r.get('clock_adjustment_seconds') for r in compatible):
+        elements.append(f'<text x="45" y="{height-12}" font-size="10">*Clock adjusted to exclude a harness interruption.</text>')
+    elements.append('</g></svg>')
+    return {'comparison.svg':''.join(elements),'comparison.json':json.dumps({'format':'hourglass-comparison-v1','reports':compatible},indent=2)+'\n'}

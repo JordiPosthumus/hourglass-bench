@@ -12,8 +12,8 @@ from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
 import score_report
 
-PAGE='''<!doctype html><meta charset="utf-8"><title>Publish Hourglass score</title><style>body{background:#101722;color:#eaf0fa;font:16px system-ui;max-width:850px;margin:40px auto}input,button{font:inherit;padding:10px;margin:8px}img{width:100%}pre{white-space:pre-wrap}a{color:#74e5c4}</style><h1>Publish score</h1><p>Review the exact three files before publishing. Reports contain aggregate results; questions, answers and traces are excluded.</p><img id="graph"><p id="files"></p><pre id="summary"></pre><label>GitHub repository <input id="repo" placeholder="owner/repository"></label><button id="publish" disabled>Publish these files to GitHub</button><p id="status"></p><script>
-let token;const status=document.getElementById('status');async function init(){try{let r=await fetch('/api/preview?job='+encodeURIComponent(new URLSearchParams(location.search).get('job')));let d=await r.json();if(!r.ok)throw Error(d.error);token=d.token;document.getElementById('repo').value=d.repo;document.getElementById('graph').src='/file/'+token+'/score.svg';document.getElementById('files').innerHTML=['README.md','report.json','score.svg'].map(n=>'<a target="_blank" href="/file/'+token+'/'+n+'">'+n+'</a>').join(' · ');document.getElementById('summary').textContent=d.summary;document.getElementById('publish').disabled=false}catch(e){status.textContent=e.message}}document.getElementById('publish').onclick=async()=>{const b=document.getElementById('publish');b.disabled=true;status.textContent='Publishing…';try{let r=await fetch('/api/publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,repo:document.getElementById('repo').value})});let d=await r.json();if(!r.ok)throw Error(d.error);status.textContent='Published: ';let a=document.createElement('a');a.href=d.url;a.textContent=d.url;status.append(a)}catch(e){status.textContent=e.message;b.disabled=false}};init();</script>'''
+PAGE='''<!doctype html><meta charset="utf-8"><title>Publish Hourglass score</title><style>body{background:#101722;color:#eaf0fa;font:16px system-ui;max-width:850px;margin:40px auto}input,button{font:inherit;padding:10px;margin:8px}img{width:100%}pre{white-space:pre-wrap}a{color:#74e5c4}</style><h1>Publish score</h1><p>Review the exact five files before publishing. Reports contain aggregate results; questions, answers and traces are excluded.</p><img id="graph"><p id="files"></p><pre id="summary"></pre><label>GitHub repository <input id="repo" placeholder="owner/repository"></label><button id="publish" disabled>Publish these files to GitHub</button><p id="status"></p><script>
+let token;const status=document.getElementById('status');async function init(){try{let r=await fetch('/api/preview?job='+encodeURIComponent(new URLSearchParams(location.search).get('job')));let d=await r.json();if(!r.ok)throw Error(d.error);token=d.token;document.getElementById('repo').value=d.repo;document.getElementById('graph').src='/file/'+token+'/comparison.svg';document.getElementById('files').innerHTML=['README.md','comparison.svg','comparison.json','report.json','score.svg'].map(n=>'<a target="_blank" href="/file/'+token+'/'+n+'">'+n+'</a>').join(' · ');document.getElementById('summary').textContent=d.summary;document.getElementById('publish').disabled=false}catch(e){status.textContent=e.message}}document.getElementById('publish').onclick=async()=>{const b=document.getElementById('publish');b.disabled=true;status.textContent='Publishing…';try{let r=await fetch('/api/publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,repo:document.getElementById('repo').value})});let d=await r.json();if(!r.ok)throw Error(d.error);status.textContent='Published: ';let a=document.createElement('a');a.href=d.url;a.textContent=d.url;status.append(a)}catch(e){status.textContent=e.message;b.disabled=false}};init();</script>'''
 
 
 def gh(path,payload=None):
@@ -59,15 +59,28 @@ def server(root,port,source_port,repo=''):
                     with urllib.request.urlopen(f'http://127.0.0.1:{source_port}/api/state',timeout=15) as response:state=json.load(response)
                     jobs=sum(state['jobs'].values(),[]);job=next(j for j in jobs if j['id']==jid)
                     manifest=json.loads((root/'evaluations'/(jid+'.json')).read_text())
-                    files=score_report.build(root,job,state['results'],manifest);token=secrets.token_hex(12)
+                    files=score_report.build(root,job,state['results'],manifest)
+                    reports=[json.loads(files['report.json'])];seen={job['model']}
+                    for other in sorted(jobs,key=lambda j:j.get('created') or 0,reverse=True):
+                        if other['model'] in seen or not other.get('started'):continue
+                        try:
+                            saved=json.loads((root/'evaluations'/(other['id']+'.json')).read_text())
+                            candidate=json.loads(score_report.build(root,other,state['results'],saved)['report.json'])
+                        except (ValueError,KeyError,FileNotFoundError):continue
+                        reference=reports[0]
+                        if any(candidate.get(k)!=reference.get(k) for k in ('bank_fingerprint','scoring','timing_policy','benchmark_version')):continue
+                        reports.append(candidate);seen.add(other['model'])
+                    files.update(score_report.comparison(reports))
+                    files['README.md']=files['README.md'].replace('![Score graph](score.svg)','![Models over time](comparison.svg)\n\n[Individual score graph](score.svg) · [Comparison data](comparison.json)')
+                    token=secrets.token_hex(12)
                     with lock:
                         if len(previews)>100:previews.pop(next(iter(previews)))
                         previews[token]={'files':files,'published':None}
                     report=json.loads(files['report.json'])
-                    self.send(json.dumps({'token':token,'repo':repo,'summary':f"{report['weighted_points']:.2f} points · {report['raw_correct']} correct · {report['state']}\nThis publishes the snapshot shown above."}));return
+                    self.send(json.dumps({'token':token,'repo':repo,'summary':f"{report['weighted_points']:.2f} points · {report['raw_correct']} correct · {report['state']}\nThis publishes the snapshot shown above, including compatible model comparisons."}));return
                 if u.path.startswith('/file/'):
                     _,_,token,name=u.path.split('/');files=previews[token]['files']
-                    self.send(files[name],{'score.svg':'image/svg+xml','report.json':'application/json','README.md':'text/plain; charset=utf-8'}[name]);return
+                    self.send(files[name],{'score.svg':'image/svg+xml','comparison.svg':'image/svg+xml','comparison.json':'application/json','report.json':'application/json','README.md':'text/plain; charset=utf-8'}[name]);return
                 self.send('{}',status=404)
             except Exception as e:self.send(json.dumps({'error':str(e)}),status=400)
         def do_POST(self):

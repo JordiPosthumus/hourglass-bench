@@ -37,12 +37,21 @@ class WeightedReportTests(unittest.TestCase):
             p.write_text('{}')
             with self.assertRaisesRegex(ValueError,'frozen difficulty'):score_report.build(root,job,rows,manifest)
 
-    def test_publication_has_only_three_files_and_nonforce_commit(self):
-        replies=[{'default_branch':'main'},{'object':{'sha':'head'}},{'tree':{'sha':'tree'}},{'sha':'b1'},{'sha':'b2'},{'sha':'b3'},{'sha':'updated'},{'sha':'commit'}]
+    def test_publication_has_only_reviewed_files_and_nonforce_commit(self):
+        replies=[{'default_branch':'main'},{'object':{'sha':'head'}},{'tree':{'sha':'tree'}},{'sha':'b1'},{'sha':'b2'},{'sha':'b3'},{'sha':'b4'},{'sha':'b5'},{'sha':'updated'},{'sha':'commit'}]
         with patch.object(score_publisher,'gh',side_effect=replies) as api,patch.object(score_publisher.subprocess,'run') as run:
             run.return_value.returncode=0
-            url=score_publisher.publish('owner/repo','token',{'report.json':'{}','score.svg':'svg','README.md':'readme'})
+            url=score_publisher.publish('owner/repo','token',{'report.json':'{}','score.svg':'svg','README.md':'readme','comparison.svg':'svg','comparison.json':'{}'})
             self.assertIn('/commit/reports/token',url)
             entries=api.call_args_list[-2].args[1]['tree']
-            self.assertEqual([e['path'] for e in entries],['reports/token/report.json','reports/token/score.svg','reports/token/README.md'])
+            self.assertEqual([e['path'] for e in entries],['reports/token/report.json','reports/token/score.svg','reports/token/README.md','reports/token/comparison.svg','reports/token/comparison.json'])
             self.assertFalse(json.loads(run.call_args.kwargs['input'])['force'])
+
+    def test_comparison_keeps_matching_banks_and_actual_endpoints(self):
+        base={'model':'model-a','bank_fingerprint':'same','scoring':'v1','timing_policy':'hour','benchmark_version':'fixture','weighted_points':2,'raw_correct':1,'state':'partial','curve':[{'seconds':0,'weighted':0},{'seconds':600,'weighted':2}]}
+        files=score_report.comparison([base,{**base,'model':'model-b'},{**base,'model':'wrong-bank','bank_fingerprint':'different'}])
+        data=json.loads(files['comparison.json'])
+        self.assertEqual([r['model'] for r in data['reports']],['model-a','model-b'])
+        self.assertNotIn('wrong-bank',files['comparison.svg'])
+        self.assertEqual(data['reports'][0]['curve'][-1]['seconds'],600)
+        self.assertIn('model-b',files['comparison.svg'])
