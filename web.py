@@ -13,6 +13,7 @@ import settings_records
 import hour_score
 import hour_deadline
 import attempt_annotations
+import score_weights
 
 ROOT = Path(__file__).resolve().parent
 TASKS, RESULTS, LOGS = ROOT/'tasks', ROOT/'results', ROOT/'logs'
@@ -113,8 +114,8 @@ def public_job(job, rows=None):
         if manifest:
             raw=run_tracking.raw_attempts(manifest,rows)
             result['progress']=run_tracking.progress(manifest,raw,job,time.time())
-            result['hour_score']=hour_score.score(job,rows,manifest['expected'])
-            result['expected']=manifest['expected']
+            result['expected']=score_weights.enrich(ROOT,manifest['expected'])
+            result['hour_score']=hour_score.score(job,rows,result['expected'])
             result['benchmark_version']=manifest['benchmark_version']
             result['scope']=manifest.get('scope')
             result['resume']=resume_plan(job,manifest,rows)
@@ -388,20 +389,6 @@ class H(BaseHTTPRequestHandler):
                 if not p.is_file():self._json({'error':'No log has been written yet.'},404);return
                 self.send_bytes(p.read_bytes(),ctype='text/plain; charset=utf-8');return
             self._text(p.read_text()[-50000:] if p.is_file() else 'Waiting to start…');return
-        if u.path in ('/api/task-display','/api/task-image'):
-            tid=q.get('id',[''])[0]
-            if tid not in valid_tasks():self._json({'error':'Unknown question'},404);return
-            t=read_json(TASKS/tid/'task.json',{})
-            assets=t.get('assets') or ([t['image']] if t.get('image') else [])
-            images=[a for a in assets if (mimetypes.guess_type(a)[0] or '').startswith('image/')]
-            if u.path=='/api/task-image':
-                asset=q.get('asset',[''])[0];base=(TASKS/tid).resolve();p=(base/asset).resolve()
-                if asset not in images or not p.is_relative_to(base) or not p.is_file():self._json({'error':'Image not found'},404);return
-                self.send_bytes(p.read_bytes(),ctype=mimetypes.guess_type(p.name)[0]);return
-            options=[]
-            if t.get('kind')=='mcq' and t.get('mode')!='numeric':options=hourglass.mcq_display(t).splitlines()[1:]
-            elif t.get('kind')=='chart-vqa':options=hourglass.shuffle_choices(t)[0].splitlines()[1:]
-            self._json({'options':options,'images':['/api/task-image?id='+urllib.parse.quote(tid,safe='')+'&asset='+urllib.parse.quote(a,safe='') for a in images]});return
         if u.path=='/api/task':
             tid=q.get('id',[''])[0]
             if tid not in valid_tasks():self._json({'error':'Unknown test'},404);return

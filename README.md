@@ -14,14 +14,14 @@ Scores are comparable only when models use the **same questions, order, repeat p
 
 ## What it measures
 
-- One point for each distinct question answered correctly and recorded within 3,600 active seconds.
+- 1–2 fixed difficulty points for each distinct question answered correctly within 3,600 active seconds, alongside the raw correct count.
 - Thinking, tools, initialization, grading, and retries consume the time budget. Pauses between resumes do not.
 - Wrong, unfinished, and unreached questions earn no points.
 - Text and vision subtotals accompany the main score.
 - At one hour, the harness stops the benchmark process group and plays a short system chime.
 - Results preserve per-attempt timing, token usage, tool traces, model settings provenance, and question hashes.
 
-The scoring policy is versioned as `hour-v1`. See [scoring](docs/scoring.md) for boundaries, partial runs, and repeat behavior.
+Difficulty weights are versioned as `weighted-hour-v1`; the active-clock boundary remains `hour-v1`. See [scoring](docs/scoring.md) for boundaries, partial runs, and repeat behavior.
 
 ## Requirements
 

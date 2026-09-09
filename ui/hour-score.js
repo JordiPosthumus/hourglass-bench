@@ -1,4 +1,9 @@
 'use strict';
+function questionWeight(t){
+  if(['math','math_logic'].includes(t.section))return {advanced_high_school:1,advanced_undergraduate:1.5,graduate:2}[t.level]??1;
+  const max=['chart','charts'].includes(t.section)||t.kind==='chart-vqa'?10:t.section==='games'?5:null;
+  return max&&typeof t.tier==='number'&&Number.isFinite(t.tier)?Math.round((1+(Math.min(max,Math.max(1,t.tier))-1)/(max-1))*1e6)/1e6:1;
+}
 // Mirrors hour_score.py; shared boundary fixtures test Python/browser parity.
 function hourScore(job, rows, expected=[], now=Date.now()/1000){
   expected=expected.length?expected:(job.expected||[]);
@@ -19,16 +24,20 @@ function hourScore(job, rows, expected=[], now=Date.now()/1000){
     if(r.status==='error')errors++;else if(r.status==='completed')within.push(r);
   }
   const available=timingKnown&&!unknown,correct=new Set(within.filter(r=>r.solved).map(r=>r.task)),completed=new Set(within.map(r=>r.task));
+  const weights=new Map(expected.map(t=>[t.task,t.weight??questionWeight(t)]));
+  const weighted=ids=>available?Math.round([...ids].reduce((n,id)=>n+(weights.get(id)??1),0)*1e6)/1e6:null;
   const lanes={};
   for(const lane of ['text','vision']){
     const rs=within.filter(r=>(vision.has(r.task)?vision.get(r.task):r.kind==='chart-vqa'||['chart','charts'].includes(r.section))===(lane==='vision'));
-    lanes[lane]={points:available?new Set(rs.filter(r=>r.solved).map(r=>r.task)).size:null,completed_questions:new Set(rs.map(r=>r.task)).size};
+    const correctLane=new Set(rs.filter(r=>r.solved).map(r=>r.task));
+    lanes[lane]={points:available?correctLane.size:null,weighted_points:weighted(correctLane),completed_questions:new Set(rs.map(r=>r.task)).size};
   }
   const final=available&&(elapsed>=3600||tids.size>0&&completed.size===tids.size);
   const state=!available?'unavailable':final?'final':job.state==='running'?'in_progress':!started?'not_started':'partial';
   return {version:'hour-v1',window_s:3600,points:available?correct.size:null,correct_tasks:available?[...correct].sort():[],breakdown:lanes,
+    weighted_version:'weighted-hour-v1',weighted_points:weighted(correct),
     completed_questions:completed.size,incorrect_questions:[...completed].filter(t=>!correct.has(t)).length,total_questions:tids.size,
     after_deadline_questions:after.size,errors,elapsed_s:elapsed,remaining_s:Math.max(0,3600-elapsed),state,
     timing_note:available?'Recorded completion timestamps on active wall clock, including thinking, tools and retries.':'Missing completion timestamps or historical pause intervals; hourly score withheld.'};
 }
-if(typeof module!=='undefined')module.exports={hourScore};
+if(typeof module!=='undefined')module.exports={hourScore,questionWeight};

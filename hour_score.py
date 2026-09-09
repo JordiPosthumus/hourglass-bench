@@ -2,6 +2,7 @@
 import datetime as dt
 import json
 import time
+import score_weights
 
 VERSION = 'hour-v1'
 WINDOW_S = 3600
@@ -46,14 +47,18 @@ def score(job, rows, expected=(), now=None):
     available = timing_known and not unknown
     correct = {r['task'] for r in within if r.get('solved')}
     completed = {r['task'] for r in within}
+    weights={t['task']:t.get('weight',score_weights.weight(t)) for t in expected}
+    weighted=lambda ids:round(sum(weights.get(tid,1.0) for tid in ids),6) if available else None
     lanes = {}
     for lane in ('text', 'vision'):
         rs = [r for r in within if vision.get(r['task'], r.get('kind') == 'chart-vqa' or r.get('section') in ('chart', 'charts')) == (lane == 'vision')]
         lanes[lane] = {'points': len({r['task'] for r in rs if r.get('solved')}) if available else None,
+                       'weighted_points':weighted({r['task'] for r in rs if r.get('solved')}),
                        'completed_questions': len({r['task'] for r in rs})}
     final = available and (elapsed >= WINDOW_S or bool(tids) and len(completed) == len(tids))
     state = 'unavailable' if not available else 'final' if final else 'in_progress' if job.get('state') == 'running' else 'not_started' if not started else 'partial'
     return {'version': VERSION, 'window_s': WINDOW_S, 'points': len(correct) if available else None,
+            'weighted_version':score_weights.VERSION,'weighted_points':weighted(correct),
             'correct_tasks': sorted(correct) if available else [], 'breakdown': lanes,
             'completed_questions': len(completed), 'incorrect_questions': len(completed - correct),
             'total_questions': len(tids), 'after_deadline_questions': len(after), 'errors': errors,
@@ -62,17 +67,17 @@ def score(job, rows, expected=(), now=None):
 
 
 def leaderboard(root, rows):
-    lines = ['## Hourglass Bench score · correct in one hour', '',
-             'One point per distinct question completed correctly within 3,600 active seconds. '
+    lines = ['## Hourglass Bench score · weighted points in one hour', '',
+             'Correct questions within 3,600 active seconds earn 1–2 points on fixed section difficulty scales. Raw correct counts remain visible. '
              'Scores are not extrapolated. Compare the same bank, order and repeat policy. '
              'Metric: hour-v1; execution versions remain unchanged.', '',
-             '| model | run | questions | score | text | vision | status |',
-             '|---|---|---|---|---|---|---|']
+             '| model | run | questions | weighted score | raw correct | text points | vision points | status |',
+             '|---|---|---|---|---|---|---|---|']
     for p in sorted((root / 'evaluations').glob('*.json')):
         m = json.loads(p.read_text())
         if not m.get('id') or not m.get('expected'):
             continue
-        h = score(m, rows)
+        h = score(m, rows,score_weights.enrich(root,m['expected']))
         value = lambda n: '—' if n is None else str(n)
-        lines.append(f"| {m['model']} | {m['id'][:8]} | {h['total_questions']} | {value(h['points'])} | {value(h['breakdown']['text']['points'])} | {value(h['breakdown']['vision']['points'])} | {h['state']} |")
+        lines.append(f"| {m['model']} | {m['id'][:8]} | {h['total_questions']} | {value(h['weighted_points'])} | {value(h['points'])} | {value(h['breakdown']['text']['weighted_points'])} | {value(h['breakdown']['vision']['weighted_points'])} | {h['state']} |")
     return '\n'.join(lines) + '\n\n'

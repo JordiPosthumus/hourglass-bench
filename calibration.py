@@ -7,6 +7,7 @@ import shutil
 import threading
 import uuid
 import run_tracking
+import score_weights
 from collections import Counter
 
 LOCK = threading.RLock()
@@ -39,6 +40,8 @@ def evaluation_manifest(root, job, version, config, legacy=False):
         task = json.loads(raw)
         expected.append({'task': tid, 'task_sha': hashlib.sha256(raw).hexdigest()[:16],
                          'vision': task.get('kind') == 'chart-vqa' or bool(task.get('image') or task.get('assets')),
+                         'section':task.get('section'),'tier':task.get('tier'),'level':task.get('level'),
+                         'weight':score_weights.weight(task),'weight_version':score_weights.VERSION,
                          'repeat': job['repeat'] if job['repeat'] is not None else task.get('repeat', 3)})
     manifest = {'id': job['id'], 'model': job['model'], 'model_id': config['model'],
                 'benchmark_version': version, 'expected': expected,

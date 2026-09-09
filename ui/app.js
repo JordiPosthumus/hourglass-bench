@@ -23,7 +23,7 @@ function filteredTasks(){if(!S)return[];const q=$('search').value.toLowerCase(),
 function renderLibrary(){const rows=filteredTasks(),shown=rows.slice(0,limit);$('libraryCaption').textContent=`${rows.length} question${rows.length===1?'':'s'} · ${new Set(rows.map(t=>t.family)).size} ${new Set(rows.map(t=>t.family)).size===1?'family':'families'}`;$('taskRows').innerHTML=shown.map(t=>`<tr class="${selected.has(t.id)?'selected-row':''}"><td class="checkcol"><input type="checkbox" data-task="${esc(t.id)}" aria-label="Select ${esc(t.id)} ${esc(t.title)}" ${selected.has(t.id)?'checked':''} ${t.issues.length?'disabled':''}></td><td><span class="questiontitle">${esc(t.title)}</span><span class="questionmeta"><code>${esc(t.id)}</code> ${esc(t.family)}${questionReviewFlag(t.id)}${t.issues.length?' · Needs attention':''}</span></td><td><span class="tier t${Number(t.order_tier??t.tier)}" title="${esc(t.tier_estimated?`Estimated from ${t.level.replaceAll('_',' ')}`:'Authored difficulty tier')}">${(t.order_tier??t.tier)==null?'Untiered':`${t.tier_estimated?'~':''}T${Number(t.order_tier??t.tier)}`}</span></td><td><span class="format">${t.vision?'Image + tools':t.kind==='fix'?'Code repair':t.mode==='numeric'?'Numeric':`${t.options} options`}</span></td><td><button class="iconbutton" data-preview="${esc(t.id)}" aria-label="Preview ${esc(t.id)}" title="Preview question">↗</button></td></tr>`).join('');$('shownCount').textContent=`Showing ${shown.length} of ${rows.length}`;$('moreTasks').classList.toggle('hidden',shown.length>=rows.length);$('noTasks').classList.toggle('hidden',rows.length>0);$('selectionCount').textContent=`${selected.size} selected`;$('selectedBadge').textContent=selected.size;$('clearSelection').disabled=!selected.size;$('selectAll').disabled=!S.tasks.some(t=>!t.issues.length&&!selected.has(t.id));$('selectMatching').disabled=!rows.some(t=>!t.issues.length&&!selected.has(t.id));$('selectMatching').classList.toggle('hidden',!$('search').value&&!$('sectionFilter').value&&!$('tierFilter').value);$('taskRows').querySelectorAll('[data-task]').forEach(el=>el.onchange=()=>{el.checked?selected.add(el.dataset.task):selected.delete(el.dataset.task);updateSelection()});$('taskRows').querySelectorAll('[data-preview]').forEach(b=>b.onclick=()=>preview(b.dataset.preview))}
 for(const id of ['search','sectionFilter','tierFilter'])$(id).addEventListener(id==='search'?'input':'change',()=>{limit=20;renderLibrary()});$('moreTasks').onclick=()=>{limit+=20;renderLibrary()};$('clearSelection').onclick=()=>{selected.clear();updateSelection()};function selectQuestions(tasks){tasks.filter(t=>!t.issues.length).forEach(t=>selected.add(t.id));updateSelection()}
 $('selectAll').onclick=()=>{if(S)selectQuestions(S.tasks)};$('selectMatching').onclick=()=>selectQuestions(filteredTasks());
-function starter(){if(!S)return;const task=S.tasks.find(t=>!t.vision&&!t.issues.length);if(!task){toast('No ready starter question is installed.');return}selected=new Set([task.id]);$('search').value=task.id;$('sectionFilter').value='';$('tierFilter').value='';$('repeat').value=1;$('taskDefaults').checked=false;setPage('bench');updateSelection();window.scrollTo({top:0,behavior:'smooth'})}
+function starter(){if(!S)return;const task=S.tasks.find(t=>t.id==='G002')||S.tasks.find(t=>!t.vision&&!t.issues.length);if(!task){toast('No ready starter question is installed.');return}selected=new Set([task.id]);$('search').value=task.id;$('sectionFilter').value='';$('tierFilter').value='';$('repeat').value=1;$('taskDefaults').checked=false;setPage('bench');updateSelection();window.scrollTo({top:0,behavior:'smooth'})}
 $('starterBtn').onclick=starter;$('resultStarter').onclick=starter;
 function modelConfig(){return S?.model_configs.find(m=>m.name===$('model').value)}
 function selectedTasks(){return S?S.tasks.filter(t=>selected.has(t.id)):[]}
@@ -93,11 +93,11 @@ $('copyFullLog').onclick=async()=>{
   finally{b.disabled=false;b.textContent='Copy full log'}
 };
 
-function scoreFor(job){return job.hour_score||hourScore(job,S.results,(job.expected||S.tasks.map(t=>({task:t.id,vision:t.vision}))))}
+function scoreFor(job){if(job.hour_score?.weighted_version)return job.hour_score;const metadata=new Map(S.tasks.map(t=>[t.id,t]));const expected=(job.expected||job.tasks.map(task=>({task}))).map(t=>({...metadata.get(t.task),...t}));return hourScore(job,S.results,expected)}
 function hourState(h){return {final:'Final',in_progress:'In progress',partial:'Partial · ended before one hour',not_started:'Not started',unavailable:'Timing unavailable'}[h.state]}
 function renderHourScores(){
   const jobs=allJobs();
-  $('hourScoreRows').innerHTML=jobs.length?jobs.map(j=>{const h=scoreFor(j),v=n=>n===null?'—':n;return `<tr><td>${esc(j.model)}<span class="questionmeta">${h.total_questions} questions · ${esc(j.id.slice(0,8))}</span></td><td><strong>${v(h.points)}</strong></td><td>${v(h.breakdown.text.points)}</td><td>${v(h.breakdown.vision.points)}</td><td>${hourState(h)}</td></tr>`}).join(''):'<tr><td colspan="5">Start a run to record a one-hour score.</td></tr>';
+  $('hourScoreRows').innerHTML=jobs.length?jobs.map(j=>{const h=scoreFor(j),v=n=>n===null?'—':n,w=n=>n==null?'—':Number(n).toFixed(2);return `<tr><td>${esc(j.model)}<span class="questionmeta">${h.total_questions} questions · ${esc(j.id.slice(0,8))}</span></td><td><strong>${w(h.weighted_points)}</strong><span class="questionmeta">${v(h.points)} correct</span></td><td>${w(h.breakdown.text.weighted_points)}</td><td>${w(h.breakdown.vision.weighted_points)}</td><td>${hourState(h)} <button class="textbutton" onclick="window.open('http://127.0.0.1:'+ (Number(location.port)+20) +'/?job=${encodeURIComponent(j.id)}','_blank')">Publish score</button></td></tr>`}).join(''):'<tr><td colspan="5">Start a run to record a one-hour score.</td></tr>';
 }
 function allJobs(){return [...S.jobs.running,...S.jobs.pending,...S.jobs.done.slice().reverse()]}
 function renderLiveRun(){
@@ -110,12 +110,12 @@ function renderLiveRun(){
   const p=job.progress;
   $('liveStop').classList.toggle('hidden',job.state!=='running');$('liveStop').disabled=!!job.stop_requested;$('liveStop').textContent=job.stop_requested?'Stopping…':'Stop run';$('liveResume').classList.toggle('hidden',!job.resume?.allowed);$('liveClear').classList.toggle('hidden',job.state==='running'||job.state==='pending');
   if(!p){$('liveMetrics').textContent='Live statistics will appear when the updated backend is available.';return}
-  const h=scoreFor(job), scoreValue=n=>n===null?'—':String(n);
-  $('liveSplit').innerHTML=['text','vision'].map(lane=>{const b=p.breakdown?.[lane],hb=h.breakdown[lane];if(!b)return '';return `<section><h3>${lane==='text'?'Text':'Vision'}</h3><strong>${scoreValue(hb.points)} <small>correct in the first hour</small></strong><p>${hb.completed_questions} questions completed within the scoring window</p><p>Full run: ${b.points} / ${b.total_questions} points · ${b.finished_questions} questions scored</p></section>`}).join('');
-  $('liveMetrics').innerHTML=`<div><span>Hourglass Bench score · 1 hour</span><strong>${scoreValue(h.points)}</strong><small>${hourState(h)} · ${h.completed_questions} completed within the hour</small></div><div><span>Scoring time remaining</span><strong>${seconds(h.remaining_s)}</strong><small>60 minutes of active time; no extrapolation</small></div><div><span>Full-run accuracy</span><strong>${p.accuracy===null?'—':(p.accuracy*100).toFixed(1)+'%'}</strong><small>${p.correct_attempts} / ${p.scored_attempts} scored attempts, including after the hour</small></div><div><span>Active run time</span><strong>${seconds(p.elapsed_s)}</strong><small>Thinking, tools and retries included; pauses excluded</small></div>`;
+  const h=scoreFor(job), scoreValue=n=>n===null?'—':Number(n).toFixed(2);
+  $('liveSplit').innerHTML=['text','vision'].map(lane=>{const b=p.breakdown?.[lane],hb=h.breakdown[lane];if(!b)return '';return `<section><h3>${lane==='text'?'Text':'Vision'}</h3><strong>${scoreValue(hb.weighted_points)} <small>points in the first hour</small></strong><p>${hb.points} correct · ${hb.completed_questions} completed within the scoring window</p><p>Full run: ${b.points} / ${b.total_questions} points · ${b.finished_questions} questions scored</p></section>`}).join('');
+  $('liveMetrics').innerHTML=`<div><span>Hourglass Bench score · 1 hour</span><strong>${scoreValue(h.weighted_points)}</strong><small>${h.points} correct · ${hourState(h)} · ${h.completed_questions} completed within the hour</small></div><div><span>Scoring time remaining</span><strong>${seconds(h.remaining_s)}</strong><small>60 minutes of active time; no extrapolation</small></div><div><span>Full-run accuracy</span><strong>${p.accuracy===null?'—':(p.accuracy*100).toFixed(1)+'%'}</strong><small>${p.correct_attempts} / ${p.scored_attempts} scored attempts, including after the hour</small></div><div><span>Active run time</span><strong>${seconds(p.elapsed_s)}</strong><small>Thinking, tools and retries included; pauses excluded</small></div>`;
   $('liveProgress').max=p.total_questions;$('liveProgress').value=p.finished_questions;
   $('liveProgressText').textContent=`${p.finished_questions} / ${p.total_questions} questions scored · ${p.wrong_streak} / ${p.stop_after_wrong} consecutive wrong${p.not_attempted?' · '+p.not_attempted+' unattempted zeros':''}${p.errors?' · '+p.errors+' execution error'+(p.errors===1?'':'s')+' recorded':''}${job.state==='running'?' · Working on '+(job.current_task||'first question'):''}`;
-  $('liveRunNotice').textContent=[h.state==='unavailable'?h.timing_note:h.elapsed_s>=3600?'The one-hour score is frozen. Any later recorded answers remain in full-run diagnostics.':'One point per distinct correct question completed within the first 60 active minutes. The run stops after 60 active minutes and plays a completion chime.',job.error,job.resume?.version_warning,job.state==='error'&&!job.resume?.allowed?job.resume?.reason:null].filter(Boolean).join(' ');
+  $('liveRunNotice').textContent=[h.state==='unavailable'?h.timing_note:h.elapsed_s>=3600?'The one-hour score is frozen. Any later recorded answers remain in full-run diagnostics.':'Correct questions earn 1–2 points by difficulty within the first 60 active minutes. The run stops after 60 active minutes and plays a completion chime.',job.error,job.resume?.version_warning,job.state==='error'&&!job.resume?.allowed?job.resume?.reason:null].filter(Boolean).join(' ');
 }
 $('newRun').onclick=()=>{setPage('bench');selected=new Set(S.tasks.filter(t=>!t.issues.length).map(t=>t.id));$('search').value='';$('sectionFilter').value='';$('tierFilter').value='';updateSelection();$('runBuilder').scrollIntoView({behavior:'smooth',block:'center'});$('model').focus({preventScroll:true});toast(`${selected.size} questions selected. Choose a model and review your new run. Saved runs are retained.`)};
 $('liveRunSelect').onchange=()=>{liveRunId=$('liveRunSelect').value;renderLiveRun()};
@@ -172,7 +172,12 @@ function thinkingDetails(r){
 }
 
 
-function questionReviewFlag(){return '';}
+function questionReviewFlag(id){
+  const flag=QUESTION_REVIEW_FLAGS[id];if(!flag)return '';
+  const label=flag.status==='setup_candidate'?'Setup-check candidate':'Cut candidate';
+  return ` <span class="question-review-flag">${label} <button type="button" class="metric-help" aria-label="Why ${esc(id)} is flagged" data-help="${esc(flag.reason+' Provisional review flag only. This question remains selected and scored normally. Compare the 27B, 9B and 0.8B results before deciding.')}" >?</button></span>`;
+}
+
 
 async function renderCurrentQuestion(){
   const job=S?.jobs.running[0],tid=job?.current_task;
@@ -181,7 +186,7 @@ async function renderCurrentQuestion(){
   currentQuestionKey=key;const request=++currentQuestionRequest;
   $('currentQuestionStatus').textContent=`${job.model} · ${tid} · Loading question…`;$('currentQuestionContent').classList.add('hidden');
   try{
-    const [t,display]=await Promise.all([api('/api/task?id='+encodeURIComponent(tid)),api('/api/task-display?id='+encodeURIComponent(tid))]);
+    const [t,display]=await Promise.all([api('/api/task?id='+encodeURIComponent(tid)),api('/question-assets/'+encodeURIComponent(tid)+'/display.json')]);
     if(request!==currentQuestionRequest||S?.jobs.running[0]?.current_task!==tid||S?.jobs.running[0]?.id!==job.id)return;
     $('currentQuestionStatus').textContent=`${job.model} · ${tid} · In progress`;
     $('currentQuestionTitle').textContent=t.title||tid;$('currentQuestionPrompt').textContent=t.prompt;
