@@ -26,7 +26,7 @@ class WeightedReportTests(unittest.TestCase):
             expected=[{'task':'SECRET-ID','task_sha':hashlib.sha256(p.read_bytes()).hexdigest()[:16],'vision':False,'repeat':2}]
             job={'id':'fixture','model':'demo','started':1000,'ended':4600,'tasks':['SECRET-ID'],'state':'stopped','active_intervals':[{'start':1000,'end':4600}]}
             rows=[{'evaluation_id':'fixture','task':'SECRET-ID','status':'completed','solved':True,'ts':dt.datetime.fromtimestamp(t,dt.timezone.utc).isoformat(),'reasoning':'SECRET TRACE'} for t in (1100,1200,4700)]
-            manifest={'expected':expected,'order':['SECRET-ID'],'benchmark_version':'fixture'}
+            manifest={'id':'fixture','expected':expected,'order':['SECRET-ID'],'benchmark_version':'fixture'}
             (root/'timing-corrections.json').write_text(json.dumps([{'evaluation_id':'fixture','credit_s':12}]))
             files=score_report.build(root,job,rows,manifest);report=json.loads(files['report.json'])
             self.assertEqual(report['weighted_points'],2);self.assertEqual(report['raw_correct'],1)
@@ -48,10 +48,10 @@ class WeightedReportTests(unittest.TestCase):
             self.assertFalse(json.loads(run.call_args.kwargs['input'])['force'])
 
     def test_comparison_keeps_matching_banks_and_actual_endpoints(self):
-        base={'model':'model-a','bank_fingerprint':'same','scoring':'v1','timing_policy':'hour','benchmark_version':'fixture','weighted_points':2,'raw_correct':1,'state':'partial','curve':[{'seconds':0,'weighted':0},{'seconds':600,'weighted':2}]}
-        files=score_report.comparison([base,{**base,'model':'model-b'},{**base,'model':'wrong-bank','bank_fingerprint':'different'}])
+        base={'model':'model-a','machine_key':'machine-a','bank_fingerprint':'same','scoring':'v1','timing_policy':'hour','benchmark_version':'fixture','weighted_points':2,'raw_correct':1,'state':'partial','curve':[{'seconds':0,'weighted':0},{'seconds':600,'weighted':2}]}
+        files=score_report.comparison([base,{**base,'model':'model-b'},{**base,'model':'wrong-bank','bank_fingerprint':'different'},{**base,'model':'wrong-machine','machine_key':'machine-b'}])
         data=json.loads(files['comparison.json'])
         self.assertEqual([r['model'] for r in data['reports']],['model-a','model-b'])
-        self.assertNotIn('wrong-bank',files['comparison.svg'])
+        self.assertNotIn('wrong-bank',files['comparison.svg']);self.assertNotIn('wrong-machine',files['comparison.svg'])
         self.assertEqual(data['reports'][0]['curve'][-1]['seconds'],600)
         self.assertIn('model-b',files['comparison.svg'])

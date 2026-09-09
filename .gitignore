@@ -26,3 +26,7 @@ __pycache__/
 /attempt-annotations.json
 
 timing-corrections.json
+
+.machine-id
+hardware-profiles.json
+hardware-records/

@@ -68,7 +68,7 @@ def server(root,port,source_port,repo=''):
                             candidate=json.loads(score_report.build(root,other,state['results'],saved)['report.json'])
                         except (ValueError,KeyError,FileNotFoundError):continue
                         reference=reports[0]
-                        if any(candidate.get(k)!=reference.get(k) for k in ('bank_fingerprint','scoring','timing_policy','benchmark_version')):continue
+                        if any(candidate.get(k)!=reference.get(k) for k in ('bank_fingerprint','scoring','timing_policy','benchmark_version','machine_key')):continue
                         reports.append(candidate);seen.add(other['model'])
                     files.update(score_report.comparison(reports))
                     files['README.md']=files['README.md'].replace('![Score graph](score.svg)','![Models over time](comparison.svg)\n\n[Individual score graph](score.svg) · [Comparison data](comparison.json)')
@@ -77,7 +77,7 @@ def server(root,port,source_port,repo=''):
                         if len(previews)>100:previews.pop(next(iter(previews)))
                         previews[token]={'files':files,'published':None}
                     report=json.loads(files['report.json'])
-                    self.send(json.dumps({'token':token,'repo':repo,'summary':f"{report['weighted_points']:.2f} points · {report['raw_correct']} correct · {report['state']}\nThis publishes the snapshot shown above, including compatible model comparisons."}));return
+                    self.send(json.dumps({'token':token,'repo':repo,'summary':f"{report['hardware']['label']}\n{report['weighted_points']:.2f} points · {report['raw_correct']} correct · {report['state']}\nThis publishes the snapshot shown above, including compatible model comparisons."}));return
                 if u.path.startswith('/file/'):
                     _,_,token,name=u.path.split('/');files=previews[token]['files']
                     self.send(files[name],{'score.svg':'image/svg+xml','comparison.svg':'image/svg+xml','comparison.json':'application/json','report.json':'application/json','README.md':'text/plain; charset=utf-8'}[name]);return

@@ -73,3 +73,7 @@ The web UI binds to loopback and provides access to your local questions and res
 ## License
 
 First-party code is MIT licensed. Vendored dependencies retain their respective licenses and notices.
+
+## Maintaining an installation
+
+See [the model, hardware and release maintenance guide](docs/maintenance.md) before changing models, updating GitHub, or handing work to another agent.

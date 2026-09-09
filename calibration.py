@@ -8,6 +8,7 @@ import threading
 import uuid
 import run_tracking
 import score_weights
+import hardware_records
 from collections import Counter
 
 LOCK = threading.RLock()
@@ -48,6 +49,7 @@ def evaluation_manifest(root, job, version, config, legacy=False):
                 'stop_after_wrong':job.get('stop_after_wrong'), 'order':job['tasks'],
                 'created': job['created'], 'started': job.get('started'), 'state': job['state'],
                 'config_hash': digest(config), 'legacy_time_match': legacy}
+    manifest['hardware']=hardware_records.capture(root,config)
     manifest['scope'] = digest({'version': version, 'expected': expected, 'order':job['tasks'], 'stop_after_wrong':job.get('stop_after_wrong')})
     with LOCK:
         write(root / 'evaluations' / (job['id'] + '.json'), manifest)
