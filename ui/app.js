@@ -97,7 +97,7 @@ function scoreFor(job){if(job.hour_score?.weighted_version)return job.hour_score
 function hourState(h){return {final:'Final',in_progress:'In progress',partial:'Partial · ended before one hour',not_started:'Not started',unavailable:'Timing unavailable'}[h.state]}
 function renderHourScores(){
   const jobs=allJobs();
-  $('hourScoreRows').innerHTML=jobs.length?jobs.map(j=>{const h=scoreFor(j),v=n=>n===null?'—':n,w=n=>n==null?'—':Number(n).toFixed(2);return `<tr><td>${esc(j.model)}<span class="questionmeta">${h.total_questions} questions · ${esc(j.id.slice(0,8))}</span></td><td><strong>${w(h.weighted_points)}</strong><span class="questionmeta">${v(h.points)} correct</span></td><td>${w(h.breakdown.text.weighted_points)}</td><td>${w(h.breakdown.vision.weighted_points)}</td><td>${hourState(h)} <button class="textbutton" onclick="window.open('http://127.0.0.1:'+ (Number(location.port)+20) +'/?job=${encodeURIComponent(j.id)}','_blank')">Publish score</button></td></tr>`}).join(''):'<tr><td colspan="5">Start a run to record a one-hour score.</td></tr>';
+  $('hourScoreRows').innerHTML=jobs.length?jobs.map(j=>{const h=scoreFor(j),v=n=>n===null?'—':n,w=n=>n==null?'—':Number(n).toFixed(2);return `<tr><td>${esc(j.model)}<span class="questionmeta">${h.total_questions} questions · ${esc(j.id.slice(0,8))}</span></td><td><strong>${w(h.weighted_points)}</strong><span class="questionmeta">${v(h.points)} correct</span></td><td>${w(h.breakdown.text.weighted_points)}</td><td>${w(h.breakdown.vision.weighted_points)}</td><td>${hourState(h)} <button class="textbutton" onclick="window.open('http://127.0.0.1:'+ (Number(location.port)+20) +'/?job=${encodeURIComponent(j.id)}','_blank')">Score preview</button></td></tr>`}).join(''):'<tr><td colspan="5">Start a run to record a one-hour score.</td></tr>';
 }
 function allJobs(){return [...S.jobs.running,...S.jobs.pending,...S.jobs.done.slice().reverse()]}
 function renderLiveRun(){
@@ -120,6 +120,7 @@ function renderLiveRun(){
 $('newRun').onclick=()=>{setPage('bench');selected=new Set(S.tasks.filter(t=>!t.issues.length).map(t=>t.id));$('search').value='';$('sectionFilter').value='';$('tierFilter').value='';updateSelection();$('runBuilder').scrollIntoView({behavior:'smooth',block:'center'});$('model').focus({preventScroll:true});toast(`${selected.size} questions selected. Choose a model and review your new run. Saved runs are retained.`)};
 $('liveRunSelect').onchange=()=>{liveRunId=$('liveRunSelect').value;renderLiveRun()};
 $('liveViewLog').onclick=()=>{logId=liveRunId;loadLog();$('logWrap').scrollIntoView({behavior:'smooth',block:'start'})};
+$('liveScorePreview').onclick=()=>{if(liveRunId)window.open('http://127.0.0.1:'+(Number(location.port)+20)+'/?job='+encodeURIComponent(liveRunId),'_blank')};
 $('liveResume').onclick=()=>reviewResume(liveRunId);
 function reviewResume(id){
   const job=allJobs().find(j=>j.id===id);if(!job?.resume?.allowed)return;
