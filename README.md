@@ -139,3 +139,11 @@ For a local LM Studio endpoint, create an ignored `telemetry-sources.json` file 
 ```
 
 Use the endpoint URL exactly as saved in the model configuration. The reader resolves the model ID from each run’s frozen configuration and starts with subsequent runs. Existing per-model remote log sources remain supported and take precedence. An already running controller can receive telemetry without restarting the benchmark: run `python3 lmstudio_telemetry.py --root . --job RUN_ID` from the benchmark directory. This passive reader exits when that run stops; it records only timing and request metadata, never prompts. A file lock prevents duplicate collectors.
+
+## Add models without editing JSON
+
+In **Model settings**, choose **Add from LM Studio** to search downloaded variants and loaded aliases through the local `lms` CLI. The picker reads the library, loaded models and server status; it does not load, unload, download or reconfigure models.
+
+Choose **Add a server model**, paste a server root or OpenAI-compatible base URL, then click **Inspect endpoint**. Discovery reads `/v1/models` (or `/models`), LM Studio metadata, `/props` and `/health` where available. Select a model to see its reported context, output maximum, provider and supported parameters. Missing settings remain unknown. DS4 endpoints that advertise an OpenAI-compatible model list are supported. The form does not configure authentication credentials.
+
+Review the display name, model ID, hardware and explicit output limit before adding. A reported output maximum is suggested when available; otherwise a reported context is suggested visibly for review. The optional context field remains empty for runtime discovery. Adding appends one configuration, preserves existing entries and additional fields, and creates a timestamped backup. Duplicate copies additional fields; the advanced JSON editor remains available. Revision checks reject stale saves. Discovery sends no inference requests and does not alter server settings.

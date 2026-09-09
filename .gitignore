@@ -38,3 +38,5 @@ run-detail-choices.jsonl
 /run-detail-setups.jsonl
 
 /telemetry-sources.json
+
+/.models-edit.lock

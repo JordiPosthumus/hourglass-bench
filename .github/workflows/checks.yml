@@ -15,5 +15,5 @@ jobs:
           node-version: '22'
       - run: python3 scripts/check_public_release.py
       - run: python3 -m unittest discover -s tests -p 'test_*.py'
-      - run: node tests/test_ui.js && node tests/test_speed.js
+      - run: node tests/test_ui.js && node tests/test_speed.js && node tests/test_model_picker.js
       - run: node --check ui/app.js && node --check harness/pi.mjs

@@ -11,6 +11,8 @@ import urllib.request
 import hourglass
 import calibration
 import model_scale
+import model_catalog
+import model_store
 import run_tracking
 import settings_records
 import run_editor
@@ -163,7 +165,7 @@ def public_job(job, rows=None):
 
 def state():
     refresh_recovered_history()
-    doc=model_document();rows=result_rows()
+    doc,models_revision=model_store.read(ROOT);rows=result_rows()
     settings_cache={}
     for row in rows:
         jid=row.get('evaluation_id')
@@ -173,7 +175,7 @@ def state():
     with condition:
         jobs={'running':[public_job(j,rows) for j in running], 'pending':[public_job(j,rows) for j in queue], 'done':[public_job(j,rows) for j in done]}
     return {'app':'Hourglass Bench','version':2,'tasks':task_catalog(),'models':model_names(),
-            'model_configs':doc.get('models',[]),'models_json':json.dumps(doc,indent=2),
+            'model_configs':doc.get('models',[]),'models_json':json.dumps(doc,indent=2),'models_revision':models_revision,'model_library_available':True,
             'model_errors':hourglass.validate_models(doc),'results':rows,
             'endpoint_hardware':endpoint_hardware.snapshot(ROOT,doc.get('models',[])),
             'calibration_available':True,'benchmark_version':hourglass.BENCHMARK_VERSION,'harness':{'name':'pi','version':'0.85.1','temperature_policy':'server_default'},
@@ -504,6 +506,10 @@ class H(BaseHTTPRequestHandler):
             except ValueError as e:self._json({'error':str(e)},400)
             return
         if u.path=='/api/state':self._json(state());return
+        if u.path=='/api/model-library/lmstudio':
+            try:self._json(model_catalog.lmstudio())
+            except ValueError as exc:self._json({'error':str(exc)},400)
+            return
         if u.path=='/api/model-scale':
             with condition:self._json(model_scale.report(ROOT,result_rows(),[*queue,*running,*done]))
             return
@@ -585,15 +591,12 @@ class H(BaseHTTPRequestHandler):
                 with condition:
                     result=endpoint_hardware.save(ROOT,model_document().get('models',[]),b)
                 self._json(result);return
+            if route=='/api/model-library/server':
+                self._json(model_catalog.inspect_endpoint(b.get('base_url')));return
+            if route=='/api/models/add':
+                self._json(model_store.add(ROOT,b.get('entry'),hourglass.validate_models,b.get('revision')));return
             if route=='/api/models':
-                doc=json.loads(b.get('text',''));errors=hourglass.validate_models(doc)
-                if errors:raise ValueError('; '.join(errors))
-                stamp=time.strftime('%Y%m%dT%H%M%SZ',time.gmtime())+'-'+uuid.uuid4().hex[:6]
-                backup=ROOT/'backups'/('models-'+stamp);backup.mkdir(parents=True)
-                target=ROOT/'models.json'
-                if target.exists():shutil.copy2(target,backup/'models.json')
-                tmp=ROOT/('models.tmp-'+uuid.uuid4().hex);tmp.write_text(json.dumps(doc,indent=2)+'\n');tmp.replace(target)
-                self._json({'ok':True,'backup':str(backup.relative_to(ROOT))});return
+                self._json(model_store.save_json(ROOT,b.get('text',''),hourglass.validate_models,b.get('revision')));return
             if route=='/api/check-model':self._json(check_model(b.get('model')));return
             if route=='/api/probe':
                 p=subprocess.run([sys.executable,str(ROOT/'hourglass.py'),'probe'],cwd=ROOT,capture_output=True,text=True)
