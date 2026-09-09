@@ -65,7 +65,7 @@ function efficiencyStats(jobs,rows){
 function drawScatter(stats){
   const omitted=stats.filter(s=>!(s.tokens>0)).length;stats=stats.filter(s=>s.tokens>0);
   const logAxis=tokenAxis(stats.map(s=>s.tokens));
-  const left=80,right=670,top=60,bottom=410,W=right-left,H=bottom-top;
+  const left=80,right=1040,top=60,bottom=410,W=right-left,H=bottom-top;
   const fit=(values,fallback,minSpan,ceiling=Infinity)=>{
     if(!values.length)return fallback;
     const lo=Math.min(...values),hi=Math.max(...values),span=Math.max(hi-lo,minSpan);
@@ -82,16 +82,16 @@ function drawScatter(stats){
   const box=(bx,by,bw,bh,color)=>`<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" fill="${color}"/>`;
   html+=box(left,top,sx-left,sy-top,'#fff3d9')+box(sx,top,right-sx,sy-top,'#e0f1e4')+box(left,sy,sx-left,bottom-sy,'#f9e2df')+box(sx,sy,right-sx,bottom-sy,'#e8edf8');
   html+=`<text x="${left+10}" y="${top+40}" fill="#876628" font-size="10">ACCURATE · MORE TOKENS</text><text x="${right-10}" y="${top+40}" text-anchor="end" fill="#28674f" font-size="10">ACCURATE · FEWER TOKENS ↗</text><text x="${left+10}" y="${bottom-12}" fill="#9a5048" font-size="10">LESS ACCURATE · MORE TOKENS</text><text x="${right-10}" y="${bottom-12}" text-anchor="end" fill="#506a94" font-size="10">LESS ACCURATE · FEWER TOKENS</text>`;
-  for(let i=0;i<=4;i++){const accuracy=accuracyMin+(accuracyMax-accuracyMin)*i/4,yy=y(accuracy);html+=`<line x1="80" x2="670" y1="${yy}" y2="${yy}" stroke="#ffffff" stroke-width="1.5"/><text x="64" y="${yy+5}" text-anchor="end" fill="#717b77" font-size="13">${(accuracy*100).toFixed(1)}%</text>`}
+  for(let i=0;i<=4;i++){const accuracy=accuracyMin+(accuracyMax-accuracyMin)*i/4,yy=y(accuracy);html+=`<line x1="80" x2="1040" y1="${yy}" y2="${yy}" stroke="#ffffff" stroke-width="1.5"/><text x="64" y="${yy+5}" text-anchor="end" fill="#717b77" font-size="13">${(accuracy*100).toFixed(1)}%</text>`}
   html+=`<path d="M${sx} ${top}V${bottom}M${left} ${sy}H${right}" stroke="#9ca89e" stroke-dasharray="5 5"/>`;
   for(const tick of logAxis.ticks)html+=`<text x="${x(tick)}" y="442" text-anchor="middle" font-size="12" fill="#717b77">${tick.toLocaleString()}</text>`;
-  html+='<text x="375" y="474" text-anchor="middle" font-size="14" fill="#505e56">Median output tokens per scored answer · log scale · fewer →</text>';
+  html+='<text x="560" y="474" text-anchor="middle" font-size="14" fill="#505e56">Median output tokens per scored answer · log scale · fewer →</text>';
   const maxSpeed=Math.max(.000001,...stats.map(s=>s.speed||0));
-  stats.map((s,i)=>({s,i})).sort((a,b)=>(b.s.speed||0)-(a.s.speed||0)).forEach(({s,i})=>{const color=colors[i%colors.length],px=x(s.tokens),py=y(s.accuracy),radius=s.speed?20*Math.sqrt(s.speed/maxSpeed):6;html+=`<circle cx="${px}" cy="${py}" r="${radius}" fill="${color}" fill-opacity=".75" stroke="white" stroke-width="3"><title>${esc(s.name)}: ${(s.accuracy*100).toFixed(1)}% correct, median ${fmt(s.tokens)} output tokens, ${s.n} scored answers, ${s.speed==null?'speed unavailable':s.speed.toFixed(2)+' answers/min'}</title></circle><text x="${px}" y="${py-radius-8}" text-anchor="${px>375?'end':'start'}" font-size="12" font-weight="600" fill="${color}">${esc(s.model)}</text>`});
-  if(!stats.length)html+='<text x="375" y="220" text-anchor="middle" fill="#717b77">No scored runs with complete output-token records</text>';
+  stats.map((s,i)=>({s,i})).sort((a,b)=>(b.s.speed||0)-(a.s.speed||0)).forEach(({s,i})=>{const color=colors[i%colors.length],px=x(s.tokens),py=y(s.accuracy),radius=s.speed?20*Math.sqrt(s.speed/maxSpeed):6;html+=`<circle cx="${px}" cy="${py}" r="${radius}" fill="${color}" fill-opacity=".75" stroke="white" stroke-width="3"><title>${esc(s.name)}: ${(s.accuracy*100).toFixed(1)}% correct, median ${fmt(s.tokens)} output tokens, ${s.n} scored answers, ${s.speed==null?'speed unavailable':s.speed.toFixed(2)+' answers/min'}</title></circle><text x="${px}" y="${py+5}" text-anchor="middle" font-size="14" font-weight="700" fill="white" stroke="${color}" stroke-width="2" paint-order="stroke" pointer-events="none">${i+1}</text>`});
+  if(!stats.length)html+='<text x="560" y="220" text-anchor="middle" fill="#717b77">No scored runs with complete output-token records</text>';
   $('scatter').innerHTML=html;
   $('quadrantGuide').textContent=(omitted?`${omitted} run(s) with zero tokens omitted from the log axis. `:'')+`The token axis is logarithmic. Quadrants bisect the displayed ranges at ${(accuracyGuide*100).toFixed(1)}% accuracy and ${fmt(tokenGuide)} output tokens. Scales update with the data; these are relative regions, not pass/fail grades.`;
-  $('scatterLegend').innerHTML=stats.map((s,i)=>`<div><span style="color:${colors[i%colors.length]}">${esc(s.name)}</span><small>${(s.accuracy*100).toFixed(1)}% correct · median ${fmt(s.tokens)} output tokens · ${s.n} scored answers · ${s.speed==null?'speed unavailable':s.speed.toFixed(2)+' answers/min'} · ${esc(s.state)}</small></div>`).join('');
+  $('scatterLegend').innerHTML=stats.map((s,i)=>`<div class="scatter-model"><span class="scatter-number" style="background:${colors[i%colors.length]}">${i+1}</span><div><strong>${esc(s.model)}</strong><span class="scatter-run">${esc(s.name)}</span><small>${(s.accuracy*100).toFixed(1)}% correct · median ${fmt(s.tokens)} output tokens · ${s.n} scored answers · ${s.speed==null?'speed unavailable':s.speed.toFixed(2)+' answers/min'} · ${esc(s.state)}</small></div></div>`).join('');
 }
 
 for(const id of ['resultSearch','resultSection','resultStatus'])$(id).addEventListener(id==='resultSearch'?'input':'change',()=>S&&renderResults());
