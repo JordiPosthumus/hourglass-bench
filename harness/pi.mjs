@@ -1,6 +1,8 @@
 import fs from 'node:fs';
+import {createIsolatedFileTools} from './tool-files.mjs';
 import path from 'node:path';
 import {createAgentSession, ModelRuntime, DefaultResourceLoader, SessionManager, SettingsManager} from '../vendor/pi-0.85.1/dist/index.js';
+import {configureHttpDispatcher} from '../vendor/pi-0.85.1/dist/core/http-dispatcher.js';
 import {resolveToCwd,resolveReadPath} from '../vendor/pi-0.85.1/dist/core/tools/path-utils.js';
 const input=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
 const emit=x=>process.stdout.write(JSON.stringify(x)+'\n');
@@ -14,7 +16,9 @@ function guard(p,read){
   return resolved;
 }
 let session, answer, turns=0, stopped=false;
+const fileTools=createIsolatedFileTools(cwd,input.sandboxProfile);
 const settingsManager=SettingsManager.inMemory({httpIdleTimeoutMs:0});
+configureHttpDispatcher(settingsManager.getHttpIdleTimeoutMs());
 const loader=new DefaultResourceLoader({cwd,agentDir,settingsManager,noExtensions:true,noSkills:true,noPromptTemplates:true,noThemes:true,noContextFiles:true,
  appendSystemPrompt:[input.instructions], extensionFactories:[pi=>{
  pi.on('before_provider_request',e=>{
@@ -40,7 +44,7 @@ try{
  const model=runtime.getModel('benchmark',cfg.model);if(!model)throw new Error('Frozen Pi could not resolve configured model');
  const finalTool={name:input.finalTool,label:input.finalTool,description:input.answerDescription,
  parameters:input.answerSchema,execute:async(_id,args)=>{answer=args;return {content:[{type:'text',text:'Answer recorded. The benchmark question is complete.'}],details:{}};}};
- ({session}=await createAgentSession({cwd,agentDir,modelRuntime:runtime,model,resourceLoader:loader,settingsManager,sessionManager:SessionManager.create(cwd,path.join(agentDir,'sessions')),customTools:[finalTool]}));
+ ({session}=await createAgentSession({cwd,agentDir,modelRuntime:runtime,model,resourceLoader:loader,settingsManager,sessionManager:SessionManager.create(cwd,path.join(agentDir,'sessions')),customTools:[...fileTools.tools,finalTool]}));
  emit({thinking_settings:{pi_thinking_level:session.thinkingLevel,source:"Pi session getter",captured_at:new Date().toISOString()}});
  session.subscribe(e=>{
    if(e.type!=='message_update'&&e.type!=='tool_execution_update')emit({event:e});
@@ -59,4 +63,4 @@ try{
  if(answer===undefined&&!stopped&&last?.stopReason==='error')throw new Error(last.errorMessage||'Pi provider error');
  emit({result:{answer:answer??{},termination:stopped?'stopped':answer!==undefined?'answered':'unfinished',turns,context_window:model.contextWindow}});
 }catch(e){emit({error:e.stack||String(e)});process.exitCode=1;}
-finally{session?.dispose();}
+finally{session?.dispose();fileTools.close();}

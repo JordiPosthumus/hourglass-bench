@@ -17,6 +17,7 @@ import run_tracking
 import settings_records
 import run_editor
 import endpoint_hardware
+import attempt_reset
 import hour_score
 import scoring_policy
 import hour_deadline
@@ -129,6 +130,7 @@ def resume_plan(job, manifest, rows):
     missing={tid:indices for tid,indices in missing.items() if indices}
     reason=None
     if job.get('state') not in ('error','cancelled','stopped'):reason='Only interrupted or cancelled runs can be resumed.'
+    elif job.get('results_reset'):reason='Selected results were reset. Prepare a targeted rerun with a fresh clock.'
     elif (job.get('elapsed_s') or 0)>=hour_score.WINDOW_S:reason='The one-hour scoring window is complete. Start a new run for another attempt.'
     elif job.get('hour_timing_unknown') or manifest.get('hour_timing_unknown'):reason='Active time was interrupted without a reliable end timestamp. Start a new run using this setup.'
     elif not missing:reason='Every planned attempt is already complete.'
@@ -147,7 +149,7 @@ def resume_plan(job, manifest, rows):
             'version_warning':f"This run began on v{manifest['benchmark_version']}; continuing on v{hourglass.BENCHMARK_VERSION} mixes versions and is excluded from calibration." if mixed else None}
 
 def public_job(job, rows=None):
-    result={k:job.get(k) for k in ('id','label','model','scoring_policy','tasks','repeat','state','rc','created','started','ended','current_task','completed_tasks','total_tasks','error','stopped_after','resume_count','stop_after_wrong','stop_requested','stop_reason','active_intervals','hour_timing_unknown','timing_recoveries')}
+    result={k:job.get(k) for k in ('id','label','model','results_reset','scoring_policy','tasks','repeat','state','rc','created','started','ended','current_task','completed_tasks','total_tasks','error','stopped_after','resume_count','stop_after_wrong','stop_requested','stop_reason','active_intervals','hour_timing_unknown','timing_recoveries')}
     if rows is not None:
         manifest=read_json(ROOT/'evaluations'/(job['id']+'.json'))
         if manifest:
@@ -240,6 +242,18 @@ def stop_job(body):
             try:os.killpg(proc.pid,signal.SIGTERM)
             except ProcessLookupError:pass
         return {'ok':True,'job':job['id']}
+
+def reset_attempts(body):
+    with condition, calibration.LOCK:
+        if running or queue: raise ValueError('Wait until active and queued runs finish before resetting results.')
+        result=attempt_reset.reset(ROOT,body)
+        for job in done:
+            if job['id'] in result['jobs']:job['results_reset']=result['id']
+        rows=result_rows()
+        hourglass.cmd_leaderboard(None,rows=rows,root=ROOT,emit=False)
+        hourglass.cmd_frontier(None,rows=rows,root=ROOT,emit=False)
+        return result
+
 
 def clear_job(body):
     with condition, calibration.LOCK:
@@ -534,6 +548,8 @@ class H(BaseHTTPRequestHandler):
             # Deliberately omit host-side answers and private verifier contents.
             self._json({'id':tid,'title':t.get('title',tid),'prompt':t.get('prompt',''),
                         'options':t.get('options') or t.get('choices') or [],'files':list((t.get('files') or {}).keys())});return
+        if u.path=='/api/attempt-reset':
+            self._json(attempt_reset.snapshot(ROOT));return
         if u.path=='/api/file':
             p=(ROOT/q.get('path',[''])[0]).resolve()
             if not p.is_relative_to(RESULTS.resolve()) or not p.is_file():self._json({'error':'Result file not found'},404);return
@@ -575,6 +591,7 @@ class H(BaseHTTPRequestHandler):
                 self._json({'ok':True,'record':record});return
             if route=='/api/run-settings':self._json({'ok':True,'record':record_settings(b)});return
             if route=='/api/stop':self._json(stop_job(b));return
+            if route=='/api/attempt-reset':self._json(reset_attempts(b));return
             if route=='/api/clear-run':self._json(clear_job(b));return
             if route=='/api/resume':
                 job=resume_job(b);self._json({'ok':True,'job':job['id']});return

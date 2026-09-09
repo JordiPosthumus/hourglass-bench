@@ -31,6 +31,11 @@ class HourScoreTests(unittest.TestCase):
         self.assertEqual(r['errors'],1)
         self.assertEqual(r['state'],'final')
 
+    def test_reset_withholds_original_hour(self):
+        r=self.calculate({'results_reset':'reset-id'},[row('a',1200)])
+        self.assertEqual(r['state'],'unavailable')
+        self.assertIsNone(r['weighted_points'])
+
     def test_repeats_cannot_inflate_question_count(self):
         r=self.calculate({},[row('a',1200),row('a',1300),row('b',1400,False)],1500)
         self.assertEqual(r['points'],1)

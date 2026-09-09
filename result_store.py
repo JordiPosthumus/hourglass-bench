@@ -32,7 +32,9 @@ def _reconcile(root, manifest):
     """Restore completed commits missing from the index; never rewrite old rows."""
     root = Path(root)
     index = root/'results'/'results.jsonl'
-    known = set()
+    ledger = root/"results/reset-ledger.json"
+    resets = json.loads(ledger.read_text()) if ledger.exists() else []
+    known = {rid for entry in resets for rid in entry["attempts"]}
     if index.exists():
         for line in index.read_text().splitlines():
             try:

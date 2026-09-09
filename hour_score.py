@@ -48,7 +48,7 @@ def score(job, rows, expected=(), now=None):
             errors += 1
         elif r.get('status') == 'completed':
             within.append(r)
-    available = timing_known and not unknown
+    available = timing_known and not unknown and not job.get("results_reset")
     correct = {r['task'] for r in within if r.get('solved')}
     completed = {r['task'] for r in within}
     net_policy = scoring_policy.is_net(job.get('scoring_policy'))
@@ -79,7 +79,7 @@ def score(job, rows, expected=(), now=None):
             'completed_questions': len(completed), 'incorrect_questions': len(wrong),
             'total_questions': len(tids), 'after_deadline_questions': len(after), 'errors': errors,
             'elapsed_s': elapsed, 'remaining_s': max(0, WINDOW_S - elapsed), 'state': state,
-            'timing_note': 'Recorded completion timestamps on active wall clock, including thinking, tools and retries.' if available else 'Missing completion timestamps or historical pause intervals; hourly score withheld.'}
+            'timing_note': 'Selected question results were reset; rerun them with a fresh clock. The original hourly score is withheld.' if job.get('results_reset') else 'Recorded completion timestamps on active wall clock, including thinking, tools and retries.' if available else 'Missing completion timestamps or historical pause intervals; hourly score withheld.'}
 
 
 def leaderboard(root, rows):

@@ -23,7 +23,7 @@ function hourScore(job, rows, expected=[], now=Date.now()/1000){
     if(activeAt(ts)>3600){if(r.status==='completed')after.add(r.task);continue}
     if(r.status==='timeout')timeouts.add(r.task);else if(r.status==='error')errors++;else if(r.status==='completed')within.push(r);
   }
-  const available=timingKnown&&!unknown,correct=new Set(within.filter(r=>r.solved).map(r=>r.task)),completed=new Set(within.map(r=>r.task));
+  const available=timingKnown&&!unknown&&!job.results_reset,correct=new Set(within.filter(r=>r.solved).map(r=>r.task)),completed=new Set(within.map(r=>r.task));
   const netPolicy=['net-hour-v1','net-hour-v2'].includes(job.scoring_policy),neutral=['unsupported_vision','abstained','question_timeout','not_attempted','turn_limit','stopped','unfinished','wrong_streak_limit','five_wrong_in_row'];
   const wrong=new Set(within.filter(r=>!r.solved&&(!netPolicy||!neutral.includes(r.score_reason)&&!neutral.includes(r.termination))).map(r=>r.task).filter(t=>!correct.has(t)));
   const countReason=reason=>new Set(within.filter(r=>r.score_reason===reason).map(r=>r.task).filter(t=>!correct.has(t)&&!wrong.has(t))).size;
@@ -45,6 +45,6 @@ function hourScore(job, rows, expected=[], now=Date.now()/1000){
     timeouts:timeouts.size,resolved_questions:new Set([...completed,...timeouts]).size,question_timeout_policy:job.question_timeout_policy??null,
     completed_questions:completed.size,incorrect_questions:wrong.size,total_questions:tids.size,
     after_deadline_questions:after.size,errors,elapsed_s:elapsed,remaining_s:Math.max(0,3600-elapsed),state,
-    timing_note:available?'Recorded completion timestamps on active wall clock, including thinking, tools and retries.':'Missing completion timestamps or historical pause intervals; hourly score withheld.'};
+    timing_note:job.results_reset?'Selected question results were reset; rerun them with a fresh clock. The original hourly score is withheld.':available?'Recorded completion timestamps on active wall clock, including thinking, tools and retries.':'Missing completion timestamps or historical pause intervals; hourly score withheld.'};
 }
 if(typeof module!=='undefined')module.exports={hourScore,questionWeight};

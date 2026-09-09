@@ -149,7 +149,7 @@ $('copyFullLog').onclick=async()=>{
 };
 
 function scoreFor(job){if(job.hour_score?.weighted_version)return job.hour_score;const metadata=new Map(S.tasks.map(t=>[t.id,t]));const expected=(job.expected||job.tasks.map(task=>({task}))).map(t=>({...metadata.get(t.task),...t}));return hourScore(job,S.results,expected)}
-function hourState(h){return {final:'Final',in_progress:'In progress',partial:'Partial · ended before one hour',not_started:'Not started',unavailable:'Timing unavailable'}[h.state]}
+function hourState(h){if(h.state==='unavailable'&&h.timing_note?.includes('results were reset'))return 'Results reset';return {final:'Final',in_progress:'In progress',partial:'Partial · ended before one hour',not_started:'Not started',unavailable:'Timing unavailable'}[h.state]}
 function renderHourScores(){
   const jobs=allJobs();
   $('hourScoreRows').innerHTML=jobs.length?jobs.map(j=>{const h=scoreFor(j),v=n=>n===null?'—':n,w=n=>n==null?'—':Number(n).toFixed(2);return `<tr><td>${esc(j.model)}<span class="questionmeta">${h.total_questions} questions · ${esc(j.id.slice(0,8))}</span></td><td><strong>${w(h.weighted_points)}</strong><span class="questionmeta">${v(h.points)} correct</span></td><td>${w(h.breakdown.text.weighted_points)}</td><td>${w(h.breakdown.vision.weighted_points)}</td><td>${hourState(h)} <button class="textbutton" onclick="openPublish('${j.id}')">Record &amp; publish score</button></td></tr>`}).join(''):'<tr><td colspan="5">Start a run to record a one-hour score.</td></tr>';
@@ -281,4 +281,20 @@ function renderTps(job){$('liveTps').innerHTML=renderTpsPanel(job.telemetry||{},
 
 initializeQuestionContext();
 initializeModelScale();
+
+const resetButton=document.createElement('button');resetButton.textContent='Reset & rerun questions';resetButton.type='button';$('newRun').after(resetButton);
+function prepareQuestionRerun(plan){
+ const source=allJobs().find(j=>j.id===plan.job);
+ if(!S.models.includes(plan.model)){toast('This model is no longer configured. Add it in Model settings first.');return;}
+ selected=new Set(plan.tasks);$('model').value=plan.model;store.set('model',plan.model);draftSourceRunId=plan.job;
+ $('taskDefaults').checked=source?.repeat==null;if(source?.repeat!=null)$('repeat').value=source.repeat;
+ $('search').value='';$('sectionFilter').value='';$('tierFilter').value='';setPage('bench');updateSelection();$('dialog').close();
+ $('runBuilder').scrollIntoView({behavior:'smooth'});toast('Affected questions selected. Review run to start a fresh clock.');
+}
+function showResetPlans(record){dialog('Rerun affected questions',`<p>${record.removed_attempts??record.attempts.length} results reset. Original traces and a backup are retained.</p><p class="help">${esc(record.backup)}</p><p>Each targeted rerun starts a fresh clock. It does not replace the original one-hour score.</p>`,[...record.plans.map(plan=>({label:plan.model+' · '+plan.tasks.join(', '),click:()=>prepareQuestionRerun(plan)})),{label:'Close',click:()=>$('dialog').close()}]);}
+resetButton.onclick=async()=>{try{
+ const data=await api('/api/attempt-reset'),rows=data.attempts.filter(r=>r.evaluation_id===liveRunId);
+ dialog('Reset question results',`<p>Select results to remove from scoring and history. Question definitions and original traces are retained. Resetting invalidates this run’s hourly score.</p><label>Reason<input id="resetReason" placeholder="For example: harness diagnostic exposure"></label><div class="reviewlist">${rows.map(r=>`<label><input type="checkbox" name="resetAttempt" value="${esc(r.run_id)}"> ${esc(r.task)} · attempt ${esc(r.run)} · ${esc(r.status)}${r.solved?' · correct':''}</label>`).join('')}</div><p class="help">Review a saved run to select its results. Active and queued work must finish first.</p>`,[{label:'Cancel',click:()=>$('dialog').close()},...[...data.history].reverse().map(h=>({label:'Previous reset · '+h.at.slice(0,8)+' · '+h.reason,click:()=>showResetPlans(h)})),{label:'Reset selected results',primary:true,click:async b=>{b.disabled=true;try{const result=await api('/api/attempt-reset',{revision:data.revision,attempts:[...document.querySelectorAll('input[name="resetAttempt"]:checked')].map(e=>e.value),reason:$('resetReason').value});await refresh();showResetPlans(result);}catch(e){toast(e.message);b.disabled=false;}}}]);
+ }catch(e){toast(e.message);}};
+
 function isFinalScore(r){if(r.status!=='completed')return false;return !['net-hour-v1','net-hour-v2'].includes(r.scoring_policy)||r.solved||!['unsupported_vision','abstained','question_timeout','not_attempted','turn_limit','stopped','unfinished','wrong_streak_limit','five_wrong_in_row'].includes(r.score_reason)&&!['not_attempted','abstained','stopped','unfinished','turn_limit'].includes(r.termination)}

@@ -14,9 +14,10 @@ import report_charts
 
 
 def build(root, job, rows, manifest):
+    if manifest.get('results_reset'):job={**job,'results_reset':manifest['results_reset']}
     expected=score_weights.enrich(root,manifest['expected'])
     h=hour_score.score(job,rows,expected)
-    if h['state']=='unavailable':raise ValueError('Timing is unavailable; this score cannot be published.')
+    if h['state']=='unavailable':raise ValueError(h['timing_note']+' This score cannot be published.')
     if any(t.get('weight_version')!=score_weights.VERSION for t in expected):
         raise ValueError('Cannot verify the frozen difficulty of every question.')
     identity={'questions':[(t['task_sha'],t['weight'],t.get('vision',False),t['repeat']) for t in expected],

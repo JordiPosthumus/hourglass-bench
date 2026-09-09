@@ -3,6 +3,7 @@ import json,os,pathlib,subprocess,sys,tempfile,threading,time
 from http.server import HTTPServer,BaseHTTPRequestHandler
 sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]))
 import web
+import diagnostics
 class H(BaseHTTPRequestHandler):
  def log_message(self,*a):pass
  def do_GET(self):
@@ -28,6 +29,13 @@ with tempfile.TemporaryDirectory() as d:
   pid=int((pathlib.Path(d)/'tool.pid').read_text());job={'id':'stop-fixture','_process':proc};web.running.append(job)
   started=time.monotonic();web.stop_job({'job':'stop-fixture'});proc.wait(timeout=10)
   assert job['stop_requested'];assert not (pathlib.Path(d)/'survived.txt').exists()
+  private=diagnostics.directory(web.ROOT,pathlib.Path(d))
+  proof=json.loads((private/'interrupted-pi-trace.json').read_text())
+  assert proof['trace'] and proof['metrics']['diagnostic_isolation']==diagnostics.POLICY
+  assert (private/'partial-pi-trace.jsonl').stat().st_size>0
+  assert list((private/'agent/sessions').rglob('*.jsonl'))
+  assert not (pathlib.Path(d)/'interrupted-pi-trace.json').exists()
+  assert not (pathlib.Path(d)/'partial-pi-trace.jsonl').exists()
   try:os.kill(pid,0)
   except ProcessLookupError:pass
   else:raise AssertionError('Bash still alive after stop')

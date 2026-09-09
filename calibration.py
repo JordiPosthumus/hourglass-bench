@@ -7,6 +7,7 @@ import shutil
 import threading
 import uuid
 import run_tracking
+import diagnostics
 import score_weights
 import scoring_policy
 import hardware_records
@@ -47,6 +48,7 @@ def evaluation_manifest(root, job, version, config, legacy=False):
                          'repeat': job['repeat'] if job['repeat'] is not None else task.get('repeat', 3)})
     manifest = {'id': job['id'], 'model': job['model'], 'model_id': config['model'],
                 'benchmark_version': version, 'expected': expected,
+                **({'diagnostic_isolation':diagnostics.POLICY} if not legacy else {}),
                 'stop_after_wrong':job.get('stop_after_wrong'), 'order':job['tasks'],
                 'created': job['created'], 'started': job.get('started'), 'state': job['state'],
                 'config_hash': digest(config), 'model_config_snapshot':json.loads(json.dumps(config)), 'legacy_time_match': legacy}
@@ -86,6 +88,7 @@ def evaluations(root, rows):
         expected = Counter({t['task']: t['repeat'] for t in m['expected']})
         actual = Counter(r.get('task') for r in attempts)
         reasons = []
+        if m.get("results_reset"):reasons.append("Selected results were reset; use a fresh evaluation.")
         if scoring_policy.is_net(m.get('scoring_policy')) and any(not scoring_policy.final_answer(r) for r in attempts):
             reasons.append('Neutral outcomes are excluded from answer-accuracy calibration.')
         if actual != expected:

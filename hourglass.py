@@ -22,18 +22,42 @@ import statistics
 import calibration
 import run_tracking
 import hour_score
+import diagnostics
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 TASKS, RESULTS, SANDBOX = ROOT / "tasks", ROOT / "results", ROOT / "sandboxes"
 REAL_HOME = str(Path.home())
-BENCHMARK_VERSION = "2.5.0"
+BENCHMARK_VERSION = "2.5.1"
 
 def requires_vision(task):
     return task.get("kind") == "chart-vqa" or bool(task.get("image") or task.get("assets"))
 
 # ------------------------------------------------------------------- sandbox
-def sandbox_profile(workdir: str) -> str:
+def benchmark_worktrees():
+    """Answer keys in this repository's linked worktrees are private too."""
+    git=ROOT/'.git'
+    try:
+        if git.is_file():
+            pointer=git.read_text().strip()
+            if not pointer.startswith('gitdir: '):return []
+            git=(ROOT/pointer[8:]).resolve()
+        common=git/'commondir'
+        if common.is_file():git=(git/common.read_text().strip()).resolve()
+        if not git.is_dir():return []
+        git=git.resolve()
+        roots=[git.parent] if git.name=='.git' else []
+        for marker in (git/'worktrees').glob('*/gitdir'):
+            target=Path(marker.read_text().strip()).resolve()
+            if target.name=='.git':roots.append(target.parent)
+        return roots
+    except (OSError,ValueError):return []
+
+
+def sandbox_profile(workdir: str, sandboxed=True) -> str:
+    if not sandboxed:
+        return diagnostics.protected_profile('(version 1)\n(allow default)', [ROOT,*benchmark_worktrees()], workdir,
+            [os.environ.get('HOURGLASS_ATTEMPT_CHECKPOINT'),os.environ.get('HOURGLASS_TELEMETRY_PHASE')])
     deny = ["Library", ".ssh", ".pi", ".hermes", ".openclaw", ".config", ".aws",
             ".gnupg", ".zsh_history", ".netrc", ".npmrc", "Documents"]
     prof = ["(version 1)", "(allow default)", "(deny network*)"]
@@ -42,25 +66,27 @@ def sandbox_profile(workdir: str) -> str:
     prof.append(f'(deny file-write* (subpath "{REAL_HOME}"))')
     prof.append(f'(allow file-write* (subpath "{workdir}"))')
     # enforce isolation: the benchmark repo (answer keys, generators, verifiers) is unreadable from tools
-    prof.append(f'(deny file-read* (subpath "{ROOT}"))')
+    private_roots=list(dict.fromkeys([ROOT,*benchmark_worktrees()]))
+    for private_root in private_roots:
+        escaped=str(private_root).replace('\\','\\\\').replace('"','\\"')
+        prof.append(f'(deny file-read* (subpath "{escaped}"))')
     prof.append(f'(allow file-read* (subpath "{workdir}"))')
     # Node resolves the entrypoint by stat-ing each ancestor. Permit directory
     # metadata only; private file contents remain denied outside the workspace.
     for parent in Path(workdir).resolve().parents:
-        if parent == ROOT or parent.is_relative_to(ROOT):
+        if any(parent == root or parent.is_relative_to(root) for root in private_roots):
             prof.append(f'(allow file-read-metadata (literal "{parent}"))')
-    return "\n".join(prof)
+    return diagnostics.protected_profile("\n".join(prof), private_roots, workdir,
+        [os.environ.get('HOURGLASS_ATTEMPT_CHECKPOINT'),os.environ.get('HOURGLASS_TELEMETRY_PHASE')])
 
 def scrub_env(workdir) -> dict:
     return {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin",
             "HOME": str(workdir), "TERM": "dumb", "LANG": "en_US.UTF-8"}
 
 def run_bash(cmd, cwd, sandboxed=True):
-    if sandboxed:
-        prof = sandbox_profile(str(cwd))
-        wrapped, env = f"sandbox-exec -p {shlex.quote(prof)} bash -c {shlex.quote(cmd)}", scrub_env(cwd)
-    else:
-        wrapped, env = cmd, dict(os.environ) if False else dict(os.environ, HOME=str(cwd))
+    prof = sandbox_profile(str(cwd), sandboxed)
+    wrapped = f"sandbox-exec -p {shlex.quote(prof)} bash -c {shlex.quote(cmd)}"
+    env = scrub_env(cwd) if sandboxed else dict(os.environ, HOME=str(cwd))
     t0 = time.time()
     try:
         p = subprocess.run(["bash", "-c", wrapped], cwd=str(cwd), env=env,
@@ -123,7 +149,7 @@ def build(task, mutate=True) -> Path:
         for p in workdir.glob(pat):
             if p.is_file():
                 manifest[str(p.relative_to(workdir))] = sha(p)
-    (workdir / ".hourglass-integrity.json").write_text(json.dumps(manifest))
+    (diagnostics.directory(ROOT, workdir, create=True) / "integrity.json").write_text(json.dumps(manifest))
     for c in (["init", "-q"], ["add", "-A"], ["-c", "user.email=hourglass@bench",
               "-c", "user.name=hourglass", "commit", "-qm", "snapshot"]):
         subprocess.run(["git", "-C", str(workdir)] + c, capture_output=True)
@@ -151,7 +177,7 @@ def verify(task, workdir, sandboxed=True):
                         sandboxed=sandboxed)
         combined += o
     ok = ("[exit " not in combined) and ("Traceback" not in combined) and ("error:" not in combined)
-    manifest = json.loads((workdir / ".hourglass-integrity.json").read_text())
+    manifest = json.loads(diagnostics.source(ROOT, workdir, "integrity.json").read_text())
     tampered = []
     for rel, h in manifest.items():
         if sha(workdir / rel) != h:
@@ -654,10 +680,11 @@ def cmd_run(args):
         rdir = RESULTS / args.task / urllib.parse.quote(args.model, safe="") / f"run-{run_id}"
         rdir.mkdir(parents=True, exist_ok=False)
         (rdir / "trace.json").write_text(json.dumps(trace, indent=1))
+        if workdir is not None:diagnostics.publish(ROOT,workdir,rdir)
         (rdir / "patch.diff").write_text(patch)
         rec = {"task": args.task, "model": args.model, "run": run, "run_id": run_id,
                "evaluation_id": os.environ.get("HOURGLASS_EVALUATION_ID"), "stop_after_wrong": stop_limit, "model_config_hash": calibration.digest(mcfg),
-               "benchmark_version": BENCHMARK_VERSION, "scoring_policy": os.environ.get('HOURGLASS_SCORING_POLICY',scoring_policy.LEGACY), "supports_vision": mcfg.get("supports_vision"),
+               "benchmark_version": BENCHMARK_VERSION, "diagnostic_isolation": diagnostics.POLICY, "scoring_policy": os.environ.get('HOURGLASS_SCORING_POLICY',scoring_policy.LEGACY), "supports_vision": mcfg.get("supports_vision"),
                "artifact_dir": str(rdir.relative_to(ROOT)), "tier": task.get("tier", 1),
                "status": "error" if metrics.get("error") else "completed",
                "section": task.get("section"), "family": task.get("family"), "mode": task.get("mode"),

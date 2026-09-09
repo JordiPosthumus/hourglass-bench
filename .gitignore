@@ -40,3 +40,5 @@ run-detail-choices.jsonl
 /telemetry-sources.json
 
 /.models-edit.lock
+
+/runtime-diagnostics/

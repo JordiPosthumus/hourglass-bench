@@ -1,8 +1,12 @@
 """Frozen Pi SDK adapter. Benchmark scoring remains outside the agent process."""
 import scoring_policy
+import diagnostics
+import contextlib
 import score_weights
-import os
 import signal
+import os
+import question_deadline
+import threading
 import re
 import base64, datetime, hashlib, json, mimetypes, pathlib, subprocess, tempfile, time, urllib.request
 ROOT=pathlib.Path(__file__).resolve().parent
@@ -70,46 +74,80 @@ def run(task,cfg,workdir,sandboxed):
         file=workdir/asset;mime=mimetypes.guess_type(str(file))[0] or 'image/png'
         if mime.startswith('image/'):
             images.append({'type':'image','data':base64.b64encode(file.read_bytes()).decode(),'mimeType':mime})
-    with tempfile.TemporaryDirectory(prefix='hourglassbench-pi-') as private:
-        agent_dir=pathlib.Path(private)
+    diagnostic_dir=diagnostics.directory(ROOT,workdir,create=True)
+    agent_dir=diagnostic_dir/'agent';agent_dir.mkdir(exist_ok=True,mode=0o700)
+    with contextlib.nullcontext(str(agent_dir)) as private:
         provider={'baseUrl':cfg['base_url'],'api':'openai-completions','apiKey':'local','models':[{'id':cfg['model'],'name':cfg['model'],'reasoning':True,'input':['text','image'],'contextWindow':context,'maxTokens':cfg.get('max_tokens',1024),'cost':{'input':0,'output':0,'cacheRead':0,'cacheWrite':0}}]}
         (agent_dir/'models.json').write_text(json.dumps({'providers':{'benchmark':provider}}))
         payload={'cwd':str(workdir),'agentDir':private,'model':cfg,'prompt':prompt+'\n\nCall '+final+' when finished.','images':images,
                  'instructions':(scoring_instructions+' ' if scoring_instructions else '')+'Work on exactly this benchmark question. Use the workspace tools as needed. Network access is unavailable. Finish by calling '+final+'.',
                  'finalTool':final,'answerDescription':'Submit the final benchmark answer.',
                  'answerSchema':answer_schema,
-                 'sandboxProfile':hourglass.sandbox_profile(workdir) if sandboxed else None}
+                 'sandboxProfile':hourglass.sandbox_profile(workdir,sandboxed)}
         request=agent_dir/'request.json';request.write_text(json.dumps(payload))
         result=None;error=None;requested=[];thinking={"pi_thinking_level":None,"source":"not captured","server_reasoning_default":metadata.get("model",{}).get("capabilities",{}).get("reasoning",{}).get("default"),"server_effective_reasoning":None,"thinking_content_observed":False}
         proc=subprocess.Popen(['node',str(ROOT/'harness/pi.mjs'),str(request)],cwd=workdir,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        # Read stderr concurrently: a verbose failure must not fill that pipe
+        # while the main thread waits for the next stdout record or EOF.
+        stderr_parts=[]
+        def collect_stderr():
+            stream=getattr(proc.stderr,'buffer',proc.stderr)
+            read=getattr(stream,'read1',stream.read)
+            with (diagnostic_dir/'stderr.txt').open('ab',buffering=0) as output:
+                while True:
+                    chunk=read(65536)
+                    if not chunk:break
+                    raw=chunk.encode() if isinstance(chunk,str) else chunk
+                    output.write(raw);stderr_parts.append(raw)
+        stderr_reader=threading.Thread(target=collect_stderr,daemon=True)
+        stderr_reader.start()
+        stop_requested=False
+        phase_path=os.environ.get('HOURGLASS_TELEMETRY_PHASE')
+        def phase(name,tool=None):
+            question_deadline.checkpoint(phase_path,{'phase':name,'tool':tool,'at':time.time(),
+                'completed_output_tokens':ct,'tool_calls':calls})
+        phase('waiting')
         def stop(_signum,_frame):
-            tail,stderr=stop_child(proc)
-            (workdir/'interrupted-pi-trace.json').write_text(json.dumps({'trace':trace,'remaining_stdout':tail,'stderr':stderr},indent=1))
-            raise SystemExit(130)
+            nonlocal stop_requested
+            stop_requested=True
+            # A signal can interrupt BufferedReader.readline(). Do not read or
+            # close that buffer reentrantly; let the ordinary loop drain it.
+            if proc.poll() is None:
+                try:proc.terminate()
+                except ProcessLookupError:pass
         previous=signal.signal(signal.SIGTERM,stop)
+        partial = (diagnostic_dir/'partial-pi-trace.jsonl').open('a', buffering=1)
         for line in proc.stdout:
+            partial.write(line)
             try:item=json.loads(line)
             except ValueError:trace.append({'pi_output':line.rstrip()});continue
             trace.append(item)
-            if 'requested_settings' in item:requested.append(item['requested_settings'])
+            if 'requested_settings' in item:
+                requested.append(item['requested_settings']);phase('waiting')
             if 'thinking_settings' in item:thinking.update(item['thinking_settings'])
             event=item.get('event',{})
             if event.get('type')=='turn_start':print('MODEL Pi turn: waiting for response',flush=True)
             if event.get('type')=='tool_execution_start':
-                calls+=1;print('TOOL '+event.get('toolName',''),flush=True)
+                calls+=1;phase('tool',event.get('toolName'));print('TOOL '+event.get('toolName',''),flush=True)
+            if event.get('type')=='tool_execution_end':phase('waiting')
             if event.get('type')=='tool_execution_end' and event.get('isError'):
                 detail='\n'.join(c.get('text','') for c in event.get('result',{}).get('content',[]) if c.get('type')=='text')
                 print('TOOL ERROR '+event.get('toolName','')+': '+detail,flush=True)
             if event.get('type')=='message_end' and event.get('message',{}).get('role')=='assistant':
                 thinking['thinking_content_observed'] |= any(c.get('type')=='thinking' and bool(c.get('thinking')) for c in event['message'].get('content',[]))
                 usage=event['message'].get('usage',{});pt+=usage.get('input',0)+usage.get('cacheRead',0)+usage.get('cacheWrite',0);ct+=usage.get('output',0)
-            if 'result' in item:result=item['result']
+            if 'result' in item:
+                result=item['result'];phase('finished')
             if 'error' in item:error=item['error']
-        stderr=proc.stderr.read();rc=proc.wait()
+        partial.close()
+        rc=proc.wait();stderr_reader.join();stderr=b''.join(stderr_parts).decode('utf-8',errors='replace')
         signal.signal(signal.SIGTERM,previous)
+        if stop_requested:
+            (diagnostic_dir/'interrupted-pi-trace.json').write_text(json.dumps({'trace':trace,'remaining_stdout':'','stderr':stderr,'metrics':{'prompt_tokens':pt,'completion_tokens':ct,'tool_calls':calls,'usage_complete':False,'thinking_settings':thinking,'requested_settings':requested,'harness':'pi','pi_version':'0.85.1','harness_sha256':hashlib.sha256((ROOT/'harness/pi.mjs').read_bytes()).hexdigest(),'pi_lock_sha256':frozen_hash,'server_settings':metadata,'temperature':metadata['temperature'],'temperature_source':metadata['temperature_source'],'context_window':context,**diagnostics.descriptor(ROOT,workdir)}},indent=1))
+            raise SystemExit(130)
         if rc or error or result is None:
             failure=hourglass.AgentRunError(error or stderr or f'Pi exited {rc} without result',trace,pt,ct,calls,started)
-            failure.metrics.update(thinking_settings=thinking,requested_settings=requested,harness='pi',pi_version='0.85.1',pi_lock_sha256=frozen_hash,server_settings=metadata,temperature=metadata['temperature'],temperature_source=metadata['temperature_source'])
+            failure.metrics.update(**diagnostics.descriptor(ROOT,workdir),thinking_settings=thinking,requested_settings=requested,harness='pi',pi_version='0.85.1',pi_lock_sha256=frozen_hash,server_settings=metadata,temperature=metadata['temperature'],temperature_source=metadata['temperature_source'])
             # Pi serializes provider exceptions, so restore the capability-error
             # type that the scoring layer already handles as an unsupported zero.
             if images and error and re.search(r'\b(?:400|415|422|500):',error) and hourglass.vision_rejection(error):
@@ -117,5 +155,5 @@ def run(task,cfg,workdir,sandboxed):
             raise failure
         metrics={'prompt_tokens':pt,'completion_tokens':ct,'tool_calls':calls,'duration_s':round(time.time()-started,3),
                  'thinking_settings':thinking,'requested_settings':requested,'termination':result['termination'],'harness':'pi','pi_version':'0.85.1','harness_sha256':hashlib.sha256((ROOT/'harness/pi.mjs').read_bytes()).hexdigest(),
-                 'pi_lock_sha256':frozen_hash,'server_settings':metadata,'temperature':metadata['temperature'],'temperature_source':metadata['temperature_source'],'context_window':context}
+                 'pi_lock_sha256':frozen_hash,'server_settings':metadata,'temperature':metadata['temperature'],'temperature_source':metadata['temperature_source'],'context_window':context,**diagnostics.descriptor(ROOT,workdir)}
         return trace,metrics,result['answer'],disp_map

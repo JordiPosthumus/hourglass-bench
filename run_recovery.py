@@ -1,3 +1,4 @@
+import diagnostics
 """Recover a closed workload interval from a persisted, stopped Pi trace."""
 import copy
 import datetime as dt
@@ -88,7 +89,7 @@ def recover(root, manifest):
             return None
         if attempt['task'] not in {t['task'] for t in manifest['expected']}:
             return None
-        proof_path = workdir/'interrupted-pi-trace.json'
+        proof_path = diagnostics.source(root,workdir,'interrupted-pi-trace.json',attempt.get('diagnostic_isolation') or manifest.get('diagnostic_isolation'))
         proof_bytes = proof_path.read_bytes()
         proof = json.loads(proof_bytes)
         finished = proof['trace'][-1].get('result', {})
