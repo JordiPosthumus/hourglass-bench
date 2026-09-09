@@ -63,3 +63,45 @@ def save(root,manifest,body):
                 choice={'id':uuid.uuid4().hex,'field':key,'value':value,'created_at':record['recorded_at']}
                 append_line(Path(root)/'run-detail-choices.jsonl',choice);choices.append(choice)
         return record
+
+
+PUBLIC_MAP={'model_name':'model_family','model_revision':'model_revision','run_name':'configuration','quantization':'quantization'}
+PUBLIC_PARAMETERS=('temperature','top_p','top_k','min_p','repetition_penalty','seed','context_limit','output_limit','reasoning','concurrency','cache')
+
+def public_labels(root,jid):
+    """Only labeled report fields; never notes, endpoint URLs or configuration secrets."""
+    record=snapshot(root,jid)
+    if not record:return {}
+    values=record['values']
+    labels={target:str(values[key])[:500] for key,target in PUBLIC_MAP.items() if key in values}
+    engine=' · '.join(str(values[k]) for k in ('server_name','server_version') if values.get(k))
+    if engine:labels['inference_engine']=engine[:500]
+    parameters='; '.join(FIELDS[k]+': '+str(values[k]) for k in PUBLIC_PARAMETERS if k in values)
+    if parameters:labels['parameters']=parameters[:500]
+    return labels
+
+def copy_setup(root,source,manifest):
+    """Copy descriptive setup to a new run, preserving all original history."""
+    import settings_records
+    import results_history
+    import hardware_records
+    prior=snapshot(root,source['id'])
+    if prior:
+        save(root,manifest,{'values':dict(prior['values']),'applies_from':'run_start','reason':'Copied setup from run '+source['id']})
+    previous=settings_records.records(root,source['id'])
+    if previous:
+        settings={}
+        for record in sorted(previous,key=lambda r:(r.get('effective_at') or 0,r.get('recorded_at') or 0)):settings.update(record['settings'])
+        append_line(Path(root)/'evaluations'/(manifest['id']+'.settings.jsonl'),{
+            'id':uuid.uuid4().hex,'source':'user_reported','evaluation_id':manifest['id'],
+            'recorded_at':time.time(),'effective_at':None,'applies_from':'run_start','settings':settings,
+            'note':'Copied from run '+source['id']+'; confirm these settings still apply.','copied_from':source['id']})
+    labels=results_history.load(root,source['id'])
+    if labels:results_history.save(root,manifest['id'],labels)
+    # Keep a per-run hardware amendment when it was recorded explicitly.
+    attachment=Path(root)/'hardware-records'/(source['id']+'.json')
+    if attachment.exists():
+        hardware=hardware_records.recorded(root,source)
+        target=Path(root)/'hardware-records'/(manifest['id']+'.json');target.parent.mkdir(parents=True,exist_ok=True)
+        hardware={**hardware,'copied_from':source['id']}
+        target.write_text(json.dumps(hardware,indent=2)+'\n')

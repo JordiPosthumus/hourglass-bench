@@ -48,7 +48,7 @@ def score(job, rows, expected=(), now=None):
     available = timing_known and not unknown
     correct = {r['task'] for r in within if r.get('solved')}
     completed = {r['task'] for r in within}
-    net_policy = job.get('scoring_policy') == scoring_policy.NET
+    net_policy = scoring_policy.is_net(job.get('scoring_policy'))
     wrong = {r['task'] for r in within if scoring_policy.incorrect(r)} - correct if net_policy else completed - correct
     abstained = {r['task'] for r in within if r.get('score_reason') == 'abstained'} - correct - wrong
     unsupported = {r['task'] for r in within if r.get('score_reason') == 'unsupported_vision'} - correct - wrong
@@ -62,11 +62,13 @@ def score(job, rows, expected=(), now=None):
         lanes[lane] = {'points': len({r['task'] for r in rs if r.get('solved')}) if available else None,
                        'weighted_points':(round(weighted({r['task'] for r in rs if r.get('solved')})-len(wrong & {r['task'] for r in rs}),6) if available else None) if net_policy else weighted({r['task'] for r in rs if r.get('solved')}),
                        'completed_questions': len({r['task'] for r in rs})}
-    final = available and (elapsed >= WINDOW_S or bool(tids) and len(completed) == len(tids))
+    repeats={t['task']:t.get('repeat',1) for t in expected}
+    all_finished=bool(tids) and all(set(range(1,repeats.get(tid,1)+1)).issubset({r.get('run',1) for r in within if r['task']==tid}) for tid in tids)
+    final = available and (elapsed >= WINDOW_S or all_finished)
     state = 'unavailable' if not available else 'final' if final else 'in_progress' if job.get('state') == 'running' else 'not_started' if not started else 'partial'
     return {'version': VERSION, 'window_s': WINDOW_S, 'points': len(correct) if available else None,
             'weighted_version':score_weights.VERSION,'weighted_points':net if net_policy else gross,
-            'scoring_policy':job.get('scoring_policy',scoring_policy.LEGACY),'gross_points':gross,'net_points':net if net_policy else None,
+            'scoring_policy':job.get('scoring_policy') or scoring_policy.LEGACY,'gross_points':gross,'net_points':net if net_policy else None,
             'penalty_points':len(wrong) if net_policy else 0,'abstained_questions':len(abstained),'unsupported_questions':len(unsupported),
             'correct_tasks': sorted(correct) if available else [], 'breakdown': lanes,
             'completed_questions': len(completed), 'incorrect_questions': len(wrong),

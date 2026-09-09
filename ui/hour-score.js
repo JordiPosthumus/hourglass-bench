@@ -24,7 +24,7 @@ function hourScore(job, rows, expected=[], now=Date.now()/1000){
     if(r.status==='error')errors++;else if(r.status==='completed')within.push(r);
   }
   const available=timingKnown&&!unknown,correct=new Set(within.filter(r=>r.solved).map(r=>r.task)),completed=new Set(within.map(r=>r.task));
-  const netPolicy=job.scoring_policy==='net-hour-v1',neutral=['unsupported_vision','abstained','question_timeout','not_attempted','turn_limit','stopped','unfinished','wrong_streak_limit','five_wrong_in_row'];
+  const netPolicy=['net-hour-v1','net-hour-v2'].includes(job.scoring_policy),neutral=['unsupported_vision','abstained','question_timeout','not_attempted','turn_limit','stopped','unfinished','wrong_streak_limit','five_wrong_in_row'];
   const wrong=new Set(within.filter(r=>!r.solved&&(!netPolicy||!neutral.includes(r.score_reason)&&!neutral.includes(r.termination))).map(r=>r.task).filter(t=>!correct.has(t)));
   const countReason=reason=>new Set(within.filter(r=>r.score_reason===reason).map(r=>r.task).filter(t=>!correct.has(t)&&!wrong.has(t))).size;
   const weights=new Map(expected.map(t=>[t.task,t.weight??questionWeight(t)]));
@@ -35,7 +35,9 @@ function hourScore(job, rows, expected=[], now=Date.now()/1000){
     const correctLane=new Set(rs.filter(r=>r.solved).map(r=>r.task));
     lanes[lane]={points:available?correctLane.size:null,weighted_points:available?Math.round((weighted(correctLane)-(netPolicy?[...new Set(rs.map(r=>r.task))].filter(t=>wrong.has(t)).length:0))*1e6)/1e6:null,completed_questions:new Set(rs.map(r=>r.task)).size};
   }
-  const final=available&&(elapsed>=3600||tids.size>0&&completed.size===tids.size);
+  const repeats=new Map(expected.map(t=>[t.task,t.repeat??1]));
+  const allFinished=tids.size>0&&[...tids].every(tid=>Array.from({length:repeats.get(tid)??1},(_,i)=>i+1).every(n=>within.some(r=>r.task===tid&&(r.run??1)===n)));
+  const final=available&&(elapsed>=3600||allFinished);
   const state=!available?'unavailable':final?'final':job.state==='running'?'in_progress':!started?'not_started':'partial';
   return {version:'hour-v1',window_s:3600,points:available?correct.size:null,correct_tasks:available?[...correct].sort():[],breakdown:lanes,
     weighted_version:'weighted-hour-v1',weighted_points:available?Math.round((weighted(correct)-(netPolicy?wrong.size:0))*1e6)/1e6:null,

@@ -26,7 +26,7 @@ class NegativeMarking(HourScoreTests):
   coords=re.search(r'<polyline points="([^"]+)',svg).group(1).split()
   self.assertTrue(all(132<=float(p.split(',')[1])<=446 for p in coords))
  def test_schema_distinguishes_answer_and_abstention(self):
-  schema,text=scoring_policy.submission({'value':{'type':'number'}},2,True)
+  schema,text=scoring_policy.submission({'value':{'type':'number'}},2,scoring_policy.WITH_ABSTENTION)
   self.assertIn('loses 1 point',text);self.assertIn('2 points',text)
   script="import {Check} from './vendor/pi-0.85.1/node_modules/typebox/build/value/index.mjs';const a=JSON.parse(process.argv[1]);console.log(JSON.stringify([{}, {value:2}, {abstain:true}, {abstain:false}, {value:2,abstain:true}].map(x=>Check(a,x))))"
   result=subprocess.run(['node','--input-type=module','-e',script,json.dumps(schema)],capture_output=True,text=True)

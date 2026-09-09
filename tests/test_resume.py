@@ -59,11 +59,17 @@ class ResumeTests(unittest.TestCase):
         self.assertEqual(self.run_fake(solved=False),[('T19',[1],''),('T20',[1],'wrong_streak_limit')]);self.assertEqual(web.done[-1]['stopped_after'],'T19')
         with self.assertRaises(ValueError):web.resume_job({'job':job['id']})
 
-    def test_duplicate_resume_and_changed_configuration_are_rejected(self):
+    def test_duplicate_resume_rejected_and_frozen_settings_survive_catalog_edit(self):
         job=self.interrupted();self.row('T00',solved=True);web.resume_job({'job':job['id']})
         with self.assertRaises(ValueError):web.resume_job({'job':job['id']})
         with web.condition:web.queue.clear();web.done.append(job)
         cfg={**self.cfg,'max_tokens':123};(self.root/'models.json').write_text(json.dumps({'models':[cfg]}))
+        resumed=web.resume_job({'job':job['id']})
+        self.assertEqual(resumed['model_config_snapshot'],self.cfg)
+        frozen=c.frozen_config_path(self.root,web.saved_manifest(job['id']),cfg)
+        self.assertEqual(json.loads(frozen.read_text())['models'],[self.cfg])
+        with web.condition:web.queue.clear();web.done.append(job)
+        legacy=web.saved_manifest(job['id']);legacy.pop('model_config_snapshot');c.write(self.root/'evaluations'/(job['id']+'.json'),legacy)
         with self.assertRaisesRegex(ValueError,'settings changed'):web.resume_job({'job':job['id']})
 
     def test_changed_question_is_rejected(self):

@@ -96,8 +96,16 @@ See [the model, hardware and release maintenance guide](docs/maintenance.md) bef
 
 ## Net scoring and Run editor
 
-New UI runs use `net-hour-v1`: +1–2 by difficulty for a correct question, −1 for a submitted incorrect final answer, and zero for explicit abstention, unsupported vision, timeout or no final submission. Tool errors have no direct penalty. Each question is counted once; any correct repeat supersedes a previous wrong submission, otherwise a question with an incorrect submission loses one point. Gross points, incorrect counts and abstentions remain visible. Models receive these rules and can submit `{"abstain": true}` through their final-answer tool. Net scores and signed step AUC can be negative. Historical runs retain their original scoring policy and comparison cohort.
+New UI runs use `net-hour-v2`: +1–2 by difficulty for a correct question, −1 for a submitted incorrect final answer, and zero for unsupported vision, timeout or no final submission. Tool errors have no direct penalty. Each question is counted once; any correct repeat supersedes a previous wrong submission, otherwise a question with an incorrect submission loses one point. Gross points, incorrect counts and abstentions remain visible. The original question instructions and final-answer tool schema are retained; scoring is applied by the grader without an extra scoring paragraph. Explicit abstention is not offered. Historical `net-hour-v1` runs retain their original abstention rules and are compared separately. Net scores and signed step AUC can be negative. Historical runs retain their original scoring policy and comparison cohort.
 
 Open **Run editor** beside the saved-run selector to record model/revision, quantization, server/version or PR, hardware, sampling settings, limits, reasoning, concurrency, cache details and notes. Each field offers persistent saved choices and accepts a new value. Saving creates an immutable revision and retains older choices. You can restore an earlier revision's values and save them as a new revision. Descriptions are user-reported; captured execution records are shown separately. This editor records details and does not change endpoint configuration. Run records and reusable choices stay local.
 
 The console defaults to `http://127.0.0.1:4534`. Score preview and publication review are served on the same site under `/scores/`; the launcher no longer starts a second listener. An explicit port environment variable still overrides the default.
+
+## Reliability and chart update (2.5.0)
+
+Run configuration is captured at enqueue time and passed unchanged to each question. Editing saved endpoints affects future runs. Interrupted runs with uncertain active time keep their results but withhold a final hourly score; use New run to reuse their setup. Final status waits for all planned repeats or the hour boundary. Timeouts are excluded from answer accuracy. Historical policy names are normalized consistently.
+
+New run copies the selected run’s model, question selection, repeats and recorded details, while starting a new clock under the current grading policy. Run editor labels populate score preview; notes remain local. Explicit report-label overrides remain until the run details change. Token-efficiency charts use a base-10 logarithmic x-axis, with fewer tokens to the right; zero-token points are omitted and counted in the caption.
+
+See [the exact prompt contract](docs/prompt-contract.md).

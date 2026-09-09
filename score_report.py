@@ -40,7 +40,7 @@ def build(root, job, rows, manifest):
     points.append({'seconds':round(min(3600,h['elapsed_s']),3),'weighted':h['weighted_points'],'correct':h['points']})
 
     scored=[r for r in rows if r.get('evaluation_id')==job['id'] and r.get('task') in {t['task'] for t in expected} and r.get('status')=='completed' and r.get('termination')!='not_attempted' and r.get('score_reason') not in ('wrong_streak_limit','five_wrong_in_row')]
-    if job.get('scoring_policy')==scoring_policy.NET:scored=[r for r in scored if scoring_policy.final_answer(r)]
+    if scoring_policy.is_net(job.get('scoring_policy')):scored=[r for r in scored if scoring_policy.final_answer(r)]
     tokens=[r.get('completion_tokens') for r in scored]
     complete=bool(scored) and all(type(t) in (int,float) and math.isfinite(t) and t>=0 for t in tokens)
     efficiency={'accuracy':sum(bool(r.get('solved')) for r in scored)/len(scored) if scored else None,'median_output_tokens':statistics.median(tokens) if complete else None,'scored_answers':len(scored),'token_data_complete':complete,'answers_per_active_minute':len(scored)/(h['elapsed_s']/60) if h['elapsed_s']>0 and not job.get('hour_timing_unknown') else None}
@@ -65,7 +65,9 @@ def build(root, job, rows, manifest):
     star='*' if credits else ''
     svg=report_charts.progress_chart([report])
     readme=f"# Hourglass Bench result\n\n![Score graph](score.svg)\n\nModel: {report['model'].replace(chr(10),' ')}\n\n**{h['weighted_points']:.2f} weighted points{star}**, {h['points']} correct. Status: **{h['state']}**.\n\nFixed difficulty weights: charts 1–10 → 1–2; games 1–5 → 1–2; math high school / undergraduate / graduate → 1 / 1.5 / 2. One award per question within 3,600 active seconds.\n\nBank fingerprint: `{report['bank_fingerprint']}`. Compare the same bank, order, repeat policy, model settings and hardware. Inference machine: {hardware['label']}. Model configuration disclosure has not been supplied.\n\n[Aggregate data](report.json)\n\nHardware source: {hardware.get('source','unknown')}.\n"
-    if h['scoring_policy']==scoring_policy.NET:readme+=f"\nNet scoring: +1–2 for a correct question, −1 for an incorrect final submission, zero for abstention, unsupported vision, timeout or no final submission. Gross: {h['gross_points']}; penalties: {h['penalty_points']}; abstained: {h['abstained_questions']}. A correct repeat supersedes an earlier incorrect answer; penalties never accumulate for repeated wrong answers to one question.\n"
+    if scoring_policy.is_net(h['scoring_policy']):readme+=f"\nNet scoring: +1–2 for a correct question, −1 for an incorrect final submission, zero for unsupported vision, timeout or no final submission. Gross: {h['gross_points']}; penalties: {h['penalty_points']}; abstained: {h['abstained_questions']}. A correct repeat supersedes an earlier incorrect answer; penalties never accumulate for repeated wrong answers to one question.\n"
+    if h['scoring_policy']==scoring_policy.NET:readme+='\nExplicit abstention is not offered under net-hour-v2.\n'
+    elif h['scoring_policy']==scoring_policy.WITH_ABSTENTION:readme+='\nThis historical run offered explicit abstention for zero points.\n'
     readme+='\n### Recorded inference hardware\n\n```json\n'+json.dumps(hardware,indent=2)+'\n```\n'
     readme+=f"\nUnsupported vision questions within the scoring window: **{report['unsupported_vision_questions']}**. These earn zero points; no extra penalty is applied. Text and vision subtotals are reported separately.\n"
     readme+='\n## Experiment configuration\n\n'+('\n'.join('- '+k.replace('_',' ')+': '+html.escape(v) for k,v in report['experiment'].items()) or 'Configuration not recorded.')+'\n\nThese evaluations use private questions. Only aggregate results and explicitly recorded public configuration labels are published.\n'
@@ -98,17 +100,18 @@ def comparison(reports, scope='same'):
 def quadrants(reports, scope='same'):
     reference=reports[0]
     compatible=compatible_reports(reports,scope)
-    points=[r for r in compatible if r.get('efficiency',{}).get('token_data_complete')]
+    points=[r for r in compatible if r.get('efficiency',{}).get('token_data_complete') and (r.get('efficiency',{}).get('median_output_tokens') or 0)>0]
+    omitted=sum(bool(r.get('efficiency',{}).get('token_data_complete')) and not (r.get('efficiency',{}).get('median_output_tokens') or 0)>0 for r in compatible)
     def fit(values,fallback,min_span,ceiling=math.inf):
         if not values:return fallback
         lo,hi=min(values),max(values);span=max(hi-lo,min_span);pad=max(span*.15,(span-(hi-lo))/2)
         step=10**math.floor(math.log10(span/4))
         return max(0,math.floor((lo-pad)/step)*step),min(ceiling,math.ceil((hi+pad)/step)*step)
     tokens=[r['efficiency']['median_output_tokens'] for r in points]
-    tmin,tmax=fit(tokens,(0,1000),max([100]+[t*.1 for t in tokens]))
+    log_axis=report_charts.token_axis(tokens);tmin,tmax=log_axis['min'],log_axis['max']
     amin,amax=fit([r['efficiency']['accuracy'] for r in points],(0,1),.1,1)
     left,right,top,bottom=90,840,110,500;cx=(left+right)/2;cy=(top+bottom)/2
-    x=lambda t:right-(t-tmin)/(tmax-tmin)*(right-left)
+    x=lambda t:right-(math.log10(t)-math.log10(tmin))/(math.log10(tmax)-math.log10(tmin))*(right-left)
     y=lambda a:bottom-(a-amin)/(amax-amin)*(bottom-top)
     colors=['#28674f','#4268b0','#ac6630','#98577d','#368893']
     height=650+len(points)*40
@@ -116,9 +119,10 @@ def quadrants(reports, scope='same'):
     for bx,by,fill in [(left,top,'#fff3d9'),(cx,top,'#e0f1e4'),(left,cy,'#f9e2df'),(cx,cy,'#e8edf8')]:
         out.append(f'<rect x="{bx}" y="{by}" width="{cx-left}" height="{cy-top}" fill="{fill}"/>')
     for i in range(5):
-        a=amin+(amax-amin)*i/4;yy=y(a);xx=left+(right-left)*i/4;t=tmax-(tmax-tmin)*i/4
-        out.append(f'<path d="M{left} {yy}H{right}" stroke="white"/><text x="75" y="{yy+5}" text-anchor="end" font-size="12">{a*100:.1f}%</text><text x="{xx}" y="530" text-anchor="middle" font-size="12">{t:,.0f}</text>')
-    out.append(f'<path d="M{cx} {top}V{bottom}M{left} {cy}H{right}" stroke="#91a195" stroke-dasharray="5 5"/><text x="90" y="93" font-size="14">Accuracy ↑</text><text x="460" y="561" text-anchor="middle" font-size="14">Median output tokens per scored answer · fewer →</text>')
+        a=amin+(amax-amin)*i/4;yy=y(a)
+        out.append(f'<path d="M{left} {yy}H{right}" stroke="white"/><text x="75" y="{yy+5}" text-anchor="end" font-size="12">{a*100:.1f}%</text>')
+    for tick in log_axis['ticks']:out.append(f'<text x="{x(tick)}" y="530" text-anchor="middle" font-size="12">{tick:,.2f}</text>')
+    out.append(f'<path d="M{cx} {top}V{bottom}M{left} {cy}H{right}" stroke="#91a195" stroke-dasharray="5 5"/><text x="90" y="93" font-size="14">Accuracy ↑</text><text x="460" y="561" text-anchor="middle" font-size="14">Median output tokens per scored answer · log scale · fewer →</text>')
     for xx,yy,label,anchor in [(100,150,'ACCURATE · MORE TOKENS','start'),(830,150,'ACCURATE · FEWER TOKENS ↗','end'),(100,485,'LESS ACCURATE · MORE TOKENS','start'),(830,485,'LESS ACCURATE · FEWER TOKENS','end')]:
         out.append(f'<text x="{xx}" y="{yy}" font-size="10" text-anchor="{anchor}">{label}</text>')
     max_speed=max([r['efficiency'].get('answers_per_active_minute') or 0 for r in points]+[.000001])
@@ -129,7 +133,7 @@ def quadrants(reports, scope='same'):
         name=html.escape(r['model']+' · '+hardware_label(r));label=html.escape(f"{r['model']} · {hardware_label(r)} · {e['accuracy']*100:.1f}% correct · {e['median_output_tokens']:,.0f} tokens · {rate} · n={e['scored_answers']} · {r['state']}")
         out.append(f'<circle cx="{px}" cy="{py}" r="{radius}" fill="{color}" fill-opacity=".75" stroke="white" stroke-width="3"><title>{label}</title></circle><text x="{px}" y="{py-radius-8}" text-anchor="{"end" if px>cx else "start"}" font-size="11" fill="{color}">{name}</text><text x="40" y="{607+i*40}" font-size="12" fill="{color}">{label}</text>')
     if not points:out.append('<text x="460" y="280" text-anchor="middle">No complete output-token records for this comparison</text>')
-    out.append(f'<text x="40" y="{height-20}" font-size="10">Axes fit the data; quadrants bisect their ranges. Question subsets and tokenizers may differ. Bubble area is proportional to speed.</text></g></svg>')
+    out.append(f'<text x="40" y="{height-20}" font-size="10">Logarithmic token axis; positive counts only ({omitted} zero-token runs omitted). Quadrants bisect the displayed ranges. Question subsets and tokenizers may differ. Bubble area is proportional to speed.</text></g></svg>')
     return {'quadrants.svg':''.join(out)}
 
 

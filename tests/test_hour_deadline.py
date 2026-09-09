@@ -51,7 +51,7 @@ class HourDeadlineTests(unittest.TestCase):
                      mock.patch.object(web,'queue',deque([job])),mock.patch.object(web,'running',[]),
                      mock.patch.object(web,'done',done),mock.patch.object(web,'condition',condition),
                      mock.patch.object(web,'worker_stop',False),mock.patch.object(web,'result_rows',return_value=[]),
-                     mock.patch.object(web,'saved_manifest',return_value={'id':'fixture','expected':[{'task':'a','repeat':1}]}),
+                     mock.patch.object(web,'saved_manifest',return_value={'id':'fixture','model_config_snapshot':{},'config_hash':web.calibration.digest({}),'expected':[{'task':'a','repeat':1}]}),
                      mock.patch.object(web.calibration,'update_evaluation'),mock.patch.object(hour_deadline,'chime')]
             for p in patches:p.start()
             thread=threading.Thread(target=web.worker)

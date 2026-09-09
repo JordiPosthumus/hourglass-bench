@@ -27,7 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 TASKS, RESULTS, SANDBOX = ROOT / "tasks", ROOT / "results", ROOT / "sandboxes"
 REAL_HOME = str(Path.home())
-BENCHMARK_VERSION = "2.4.0"
+BENCHMARK_VERSION = "2.5.0"
 
 def requires_vision(task):
     return task.get("kind") == "chart-vqa" or bool(task.get("image") or task.get("assets"))
@@ -641,7 +641,7 @@ def cmd_run(args):
             solved, vout, tampered = False, f"Not attempted: stopped after {stop_limit} consecutive incorrect questions; scored zero.", []
         elif unsupported_vision:
             solved, vout, tampered = False, "Vision unsupported: scored zero. " + ("Detected from endpoint rejection." if metrics.get("vision_detection") else "No model request needed."), []
-        elif os.environ.get('HOURGLASS_SCORING_POLICY') == scoring_policy.NET and parsed.get('abstain') is True:
+        elif os.environ.get('HOURGLASS_SCORING_POLICY') == scoring_policy.WITH_ABSTENTION and parsed.get('abstain') is True:
             solved, vout, tampered = False, 'Explicit abstention: zero points.', []
             metrics.update(termination='abstained',score_reason='abstained')
         elif chart:

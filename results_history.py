@@ -4,12 +4,19 @@ import hashlib
 import html
 import json
 from pathlib import Path
+import run_editor
 
 FIELDS=('model_family','model_revision','configuration','quantization','inference_engine','harness_revision','parameters')
 
 def load(root,jid):
     path=Path(root)/'evaluations'/(jid+'.experiment.json')
-    return json.loads(path.read_text()) if path.exists() else {}
+    saved=json.loads(path.read_text()) if path.exists() else {}
+    details=run_editor.snapshot(root,jid)
+    if not details:return saved
+    source=path.with_name(jid+'.experiment-source.json')
+    source_revision=json.loads(source.read_text()).get('run_details_revision') if source.exists() else None
+    if source_revision==details['id']:return saved
+    return {**saved,**run_editor.public_labels(root,jid)}
 
 def clean(value):
     if not isinstance(value,dict) or set(value)-set(FIELDS):raise ValueError('Unknown experiment field.')
@@ -22,6 +29,8 @@ def clean(value):
 def save(root,jid,value):
     value=clean(value);path=Path(root)/'evaluations'/(jid+'.experiment.json')
     temporary=path.with_suffix('.tmp');temporary.write_text(json.dumps(value,indent=2)+'\n');temporary.replace(path)
+    details=run_editor.snapshot(root,jid)
+    path.with_name(jid+'.experiment-source.json').write_text(json.dumps({'run_details_revision':details['id'] if details else None})+'\n')
     return value
 
 def revision(value):return hashlib.sha256(json.dumps(value,sort_keys=True).encode()).hexdigest()

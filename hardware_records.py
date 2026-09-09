@@ -54,12 +54,15 @@ def capture(root,config):
 
 
 def recorded(root,manifest):
+    import run_editor
     path=root/'hardware-records'/(manifest['id']+'.json')
     attachment=json.loads(path.read_text()) if path.exists() else None
-    if attachment and attachment.get('source')=='owner recorded':return attachment
-    if manifest.get('hardware'):return manifest['hardware']
-    if attachment:return attachment
-    return {'machine_key':'unknown-'+hashlib.sha256(manifest['id'].encode()).hexdigest(),'label':'Hardware not recorded','source':'unknown'}
+    current=attachment if attachment and attachment.get('source')=='owner recorded' else manifest.get('hardware') or attachment or {'machine_key':'unknown-'+hashlib.sha256(manifest['id'].encode()).hexdigest(),'label':'Hardware not recorded','source':'unknown'}
+    details=run_editor.snapshot(root,manifest['id'])
+    label=(details or {}).get('values',{}).get('hardware')
+    if label and label!=current.get('label') and (not attachment or attachment.get('run_editor_hardware')!=label):
+        current={'label':label,'machine_key':hashlib.sha256(('hardware-label:'+label.casefold()).encode()).hexdigest(),'source':'owner recorded','captured_at':dt.datetime.fromtimestamp(details['recorded_at'],dt.timezone.utc).isoformat()}
+    return current
 
 
 def revision(record):
@@ -100,6 +103,9 @@ def save_user_record(root,manifest,fields,known_machines,expected_revision):
             result[target]=round(number*multiplier)
         gpu=string('gpu')
         if gpu:result['gpu']=[{'model':gpu}]
+    import run_editor
+    details=run_editor.snapshot(root,manifest['id'])
+    if details:result['run_editor_hardware']=details['values'].get('hardware')
     stamp=dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
     backup=root/'backups'/('hardware-amendment-'+stamp);backup.mkdir(parents=True)
     (backup/'previous-effective-hardware.json').write_text(json.dumps(current,indent=2)+'\n')

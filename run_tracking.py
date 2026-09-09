@@ -64,11 +64,11 @@ def progress(manifest, raw, job, now):
         if len(rs)==n:
             finished+=1
             if not any(is_early_stop(r) for r in rs):
-                if manifest.get('scoring_policy')==scoring_policy.NET and not any(scoring_policy.final_answer(r) for r in rs):continue
+                if scoring_policy.is_net(manifest.get('scoring_policy')) and not any(scoring_policy.final_answer(r) for r in rs):continue
                 answered_questions+=1
                 streak=0 if any(r.get('solved') for r in rs) else streak+1
     scored=[r for r in effective if r.get('status')=='completed' and not is_early_stop(r)]
-    if manifest.get('scoring_policy')==scoring_policy.NET:scored=[r for r in scored if scoring_policy.final_answer(r)]
+    if scoring_policy.is_net(manifest.get('scoring_policy')):scored=[r for r in scored if scoring_policy.final_answer(r)]
     elapsed=job.get('elapsed_s')
     if elapsed is None:
         elapsed=max(0,(job.get('ended') or now)-(job.get('started') or now)) if job.get('started') else 0

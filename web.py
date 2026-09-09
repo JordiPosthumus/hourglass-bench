@@ -119,8 +119,11 @@ def resume_plan(job, manifest, rows):
     reason=None
     if job.get('state') not in ('error','cancelled','stopped'):reason='Only interrupted or cancelled runs can be resumed.'
     elif (job.get('elapsed_s') or 0)>=hour_score.WINDOW_S:reason='The one-hour scoring window is complete. Start a new run for another attempt.'
+    elif job.get('hour_timing_unknown') or manifest.get('hour_timing_unknown'):reason='Active time was interrupted without a reliable end timestamp. Start a new run using this setup.'
     elif not missing:reason='Every planned attempt is already complete.'
     config=next((m for m in model_document()['models'] if m['name']==manifest['model']),None)
+    frozen=manifest.get('model_config_snapshot')
+    if frozen is not None:config=frozen
     if not reason and (not config or calibration.digest(config)!=manifest['config_hash']):
         reason='The saved model settings changed. Start a fresh run to keep results comparable.'
     if not reason:
@@ -239,6 +242,9 @@ def clear_job(body):
         if settings_path.exists():shutil.copy2(settings_path,backup/'user-settings.jsonl')
         experiment_path=ROOT/'evaluations'/(jid+'.experiment.json')
         if experiment_path.exists():shutil.copy2(experiment_path,backup/'experiment.json')
+        sidecars=[ROOT/'evaluations'/(jid+suffix) for suffix in ('.details.jsonl','.model.json','.experiment-source.json')]
+        for sidecar in sidecars:
+            if sidecar.exists():shutil.copy2(sidecar,backup/sidecar.name)
         result_file=RESULTS/'results.jsonl';lines=result_file.read_bytes().splitlines(keepends=True) if result_file.exists() else []
         if result_file.exists():shutil.copy2(result_file,backup/'results-before.jsonl')
         (backup/'removed-results.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in removed))
@@ -274,6 +280,8 @@ def clear_job(body):
         hourglass.cmd_leaderboard(None,rows=retained,root=ROOT,emit=False)
         hourglass.cmd_frontier(None,rows=retained,root=ROOT,emit=False)
         source.unlink()
+        for sidecar in sidecars:
+            if sidecar.exists():sidecar.unlink()
         if experiment_path.exists():experiment_path.unlink()
         if log.exists():log.unlink()
         for path in artifacts:shutil.rmtree(path)
@@ -296,6 +304,8 @@ def worker():
         LOGS.mkdir(exist_ok=True)
         try:
             manifest=saved_manifest(job['id'])
+            current_config=next((m for m in model_document().get('models',[]) if m.get('name')==manifest.get('model')),None)
+            config_path=calibration.frozen_config_path(ROOT,manifest,current_config)
             expected={t['task']:t['repeat'] for t in manifest['expected']}
             with (LOGS/f"job-{job['id']}.log").open('a') as log:
                 log.write(f"\n{'RESUME' if job.get('resume_count') else 'RUN'} · Hourglass Bench {hourglass.BENCHMARK_VERSION}\n");log.flush()
@@ -310,7 +320,7 @@ def worker():
                     if missing:
                         with condition:job['current_task']=tid
                         cmd=[sys.executable,'-u',str(ROOT/'hourglass.py'),'run',tid,'--model',job['model'],
-                             '--repeat',str(expected[tid]),'--repeat-indices',','.join(map(str,missing))]
+                             '--config',str(config_path),'--repeat',str(expected[tid]),'--repeat-indices',','.join(map(str,missing))]
                         log.write(f"\n=== {tid} · repeats {','.join(map(str,missing))} ===\n");log.flush()
                         with condition:
                             if job.get('stop_requested'):
@@ -333,7 +343,7 @@ def worker():
                     with condition:job['completed_tasks']+=1
                     if not skip:
                         attempts=[r for r in run_tracking.effective_attempts(raw) if r.get('task')==tid]
-                        if job.get('scoring_policy')==scoring_policy.NET and not any(scoring_policy.final_answer(r) for r in attempts):continue
+                        if scoring_policy.is_net(job.get('scoring_policy')) and not any(scoring_policy.final_answer(r) for r in attempts):continue
                         wrong_streak=0 if any(r.get('solved') for r in attempts) else wrong_streak+1
                         if wrong_streak>=stop_limit:
                             with condition:job['stopped_after']=tid
@@ -358,7 +368,19 @@ def restore_job_history():
         state=m.get('state','error')
         if state in ('pending','running'):
             state='error'
+            prior=dict(m)
             m['error']='UI restarted before this evaluation finished. Saved attempts and logs are retained.'
+            if prior.get('state')=='running':
+                # The last persisted start cannot establish when a crashed process stopped.
+                # Preserve the interval as evidence, but never count app downtime as active work.
+                m['hour_timing_unknown']=True
+                m['active_started']=None
+                m['error']='Controller interrupted during this run; exact active time is unknown. Results retained. Use New run to reuse this setup.'
+            m['state']='error'
+            backup=ROOT/'backups'/('interrupted-run-'+time.strftime('%Y%m%dT%H%M%SZ',time.gmtime())+'-'+m['id'])
+            backup.mkdir(parents=True,exist_ok=True)
+            calibration.write(backup/'evaluation-before.json',prior)
+            calibration.write(path,m)
         done.append({**m,'state':state,'tasks':m.get('order') or [t['task'] for t in m['expected']],
                      'total_tasks':len(m['expected']), 'label':m.get('label',m['model']+' · saved evaluation')})
 
@@ -386,7 +408,10 @@ def enqueue(body):
     with condition:
         if 'hardware_revision' in body and body['hardware_revision']!=endpoint_hardware.revision(endpoint_hardware.load(ROOT)):
             raise ValueError('Hardware settings changed after review. Refresh and review the run again.')
-        calibration.evaluation_manifest(ROOT,job,hourglass.BENCHMARK_VERSION,config)
+        source=saved_manifest(body['copy_from']) if body.get('copy_from') else None
+        if source and source['model']!=model:raise ValueError('Copied run details belong to another model. Clear the copied setup before changing models.')
+        manifest=calibration.evaluation_manifest(ROOT,job,hourglass.BENCHMARK_VERSION,config)
+        if source:run_editor.copy_setup(ROOT,source,manifest)
         queue.append(job);condition.notify_all()
     return job
 
@@ -424,7 +449,7 @@ class H(BaseHTTPRequestHandler):
         if u.path=='/api/run-editor':
             try:
                 jid=q.get('job',[''])[0];manifest=saved_manifest(jid)
-                self._json({**run_editor.catalog(ROOT),'history':run_editor.history(ROOT,jid),'captured':{k:manifest.get(k) for k in ('model','model_id','config_hash','hardware','benchmark_version','scoring_policy')}})
+                self._json({**run_editor.catalog(ROOT),'history':run_editor.history(ROOT,jid),'captured':{k:manifest.get(k) for k in ('model','model_id','config_hash','hardware','benchmark_version','scoring_policy')},'requested':{k:manifest.get('model_config_snapshot',{}).get(k) for k in ('context_window','max_tokens','reasoning','hardware')}})
             except ValueError as e:self._json({'error':str(e)},400)
             return
         if u.path=='/api/state':self._json(state());return

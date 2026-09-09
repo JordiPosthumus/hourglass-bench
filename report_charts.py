@@ -73,3 +73,16 @@ def progress_chart(reports,scope='same'):
     out.append(f'<text x="40" y="{height-27}" font-size="11" fill="#71827a">Each step marks the score after a final submission. AUC is the area under this exact step graph.</text>')
     if any(r.get('clock_adjustment_seconds') for r in reports):out.append(f'<text x="40" y="{height-10}" font-size="10" fill="#71827a">*Includes a disclosed clock adjustment.</text>')
     out.append('</g></svg>');return ''.join(out)
+
+
+def token_axis(values):
+    """A true base-10 axis: zero/missing token counts are not log-plottable."""
+    values=[v for v in values if type(v) in (int,float) and math.isfinite(v) and v>0]
+    low=math.floor(math.log10(min(values))) if values else 0
+    high=max(low+1,math.ceil(math.log10(max(values)))) if values else 3
+    ticks=[]
+    for exponent in range(low,high+1):
+        for multiplier in ((1,2,5) if high-low<=3 else (1,)):
+            value=multiplier*10**exponent
+            if 10**low<=value<=10**high:ticks.append(value)
+    return {'min':10**low,'max':10**high,'ticks':ticks,'guide':10**((low+high)/2)}

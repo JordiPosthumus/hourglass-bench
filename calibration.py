@@ -49,7 +49,7 @@ def evaluation_manifest(root, job, version, config, legacy=False):
                 'benchmark_version': version, 'expected': expected,
                 'stop_after_wrong':job.get('stop_after_wrong'), 'order':job['tasks'],
                 'created': job['created'], 'started': job.get('started'), 'state': job['state'],
-                'config_hash': digest(config), 'legacy_time_match': legacy}
+                'config_hash': digest(config), 'model_config_snapshot':json.loads(json.dumps(config)), 'legacy_time_match': legacy}
     manifest['hardware']=hardware_records.capture(root,config)
     manifest['scope'] = digest({'version': version, 'expected': expected, 'order':job['tasks'], 'stop_after_wrong':job.get('stop_after_wrong')})
     if 'scoring_policy' in job:
@@ -86,7 +86,7 @@ def evaluations(root, rows):
         expected = Counter({t['task']: t['repeat'] for t in m['expected']})
         actual = Counter(r.get('task') for r in attempts)
         reasons = []
-        if m.get('scoring_policy')==scoring_policy.NET and any(not scoring_policy.final_answer(r) for r in attempts):
+        if scoring_policy.is_net(m.get('scoring_policy')) and any(not scoring_policy.final_answer(r) for r in attempts):
             reasons.append('Neutral outcomes are excluded from answer-accuracy calibration.')
         if actual != expected:
             reasons.append(f"Incomplete or duplicate attempts: {len(attempts)}/{sum(expected.values())} recorded.")
@@ -225,3 +225,26 @@ def save_document(root, doc):
         backup.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, backup)
     write(path, doc)
+
+
+def frozen_config_path(root,manifest,current_config=None):
+    """Execute exactly the reviewed model configuration, never the editable catalog."""
+    config=manifest.get('model_config_snapshot')
+    if config is None:
+        if current_config is None or digest(current_config)!=manifest.get('config_hash'):
+            raise ValueError('Historical run settings changed. Start a new run using the saved setup.')
+        config=current_config
+    if digest(config)!=manifest.get('config_hash'):
+        raise ValueError('Frozen model configuration failed its integrity check.')
+    path=root/'evaluations'/(manifest['id']+'.model.json')
+    document={'models':[config]}
+    if path.exists():
+        if read(path,None)!=document:raise ValueError('Frozen model configuration file changed; refusing to mix settings.')
+    else:
+        # No model secrets are included in public API views or report exports.
+        path.parent.mkdir(parents=True,exist_ok=True)
+        with path.open('x') as output:
+            import os
+            os.chmod(path,0o600)
+            output.write(json.dumps(document,indent=2,allow_nan=False)+'\n')
+    return path
