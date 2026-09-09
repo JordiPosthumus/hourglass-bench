@@ -11,6 +11,7 @@ const ModelForms = {
     out.base_url = out.base_url.replace(/\/+$/, '');
     const positive = (v, label) => { if (!/^\d+$/.test(String(v)) || !Number.isSafeInteger(+v) || +v < 1) throw Error(`${label} must be a positive whole number.`); return +v; };
     out.max_tokens = positive(fields.max_tokens, 'Output token limit');
+    if (out.extra?.max_tokens !== undefined && out.extra.max_tokens !== out.max_tokens) throw Error('Additional JSON contains a different extra.max_tokens override. Match it to the visible output limit or remove that override.');
     if (String(fields.context_window || '').trim()) out.context_window = positive(fields.context_window, 'Context length');
     else delete out.context_window;
     return out;
@@ -64,6 +65,7 @@ class ModelPicker {
     const build = () => ModelForms.entry(Object.fromEntries(fields.map(k => [k,$('mf-'+k).value])), JSON.parse($('modelExtraFields').value));
     const preview = () => { try { $('modelEntryPreview').textContent = JSON.stringify(build(),null,2); $('modelFormError').textContent = ''; } catch (error) { $('modelEntryPreview').textContent = error.message; } };
     fields.forEach(k => { $('mf-'+k).value = copy?.[k] ?? ''; $('mf-'+k).oninput = preview; });
+    if (copy?.extra?.max_tokens !== undefined) $('mf-max_tokens').value = copy.extra.max_tokens;
     if (copy) $('mf-name').value = ModelForms.uniqueName(copy.name, this.getState().model_configs);
     $('modelExtraFields').oninput = preview;
     let rows = [], selectedKey = null;

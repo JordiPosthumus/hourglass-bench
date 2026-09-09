@@ -12,3 +12,6 @@ for(const value of ['',0,-1,'1.2','Infinity']) assert.throws(()=>forms.entry({..
 assert.equal(forms.uniqueName('Example',[{name:'Example'},{name:'Example-2'}]),'Example-3');
 assert.throws(()=>forms.entry(values,[]));
 console.log('Model form checks passed.');
+
+assert.throws(()=>forms.entry(values,{extra:{max_tokens:1024}}),/override/);
+assert.equal(forms.entry(values,{extra:{max_tokens:262144}}).extra.max_tokens,262144);

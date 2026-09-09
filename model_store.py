@@ -60,6 +60,9 @@ def add(root,entry,validate,expected=None):
         entry[key]=entry[key].strip()
     if type(entry.get('max_tokens')) is not int or entry['max_tokens']<=0:
         raise ValueError('Choose a positive output token limit explicitly.')
+    extra=entry.get('extra')
+    if isinstance(extra,dict) and 'max_tokens' in extra and (type(extra['max_tokens']) is not int or extra['max_tokens']!=entry['max_tokens']):
+        raise ValueError('extra.max_tokens conflicts with the visible output token limit. Match or remove that override.')
     if 'context_window' in entry and (type(entry['context_window']) is not int or entry['context_window']<=0):
         raise ValueError('Context length must be a positive integer, or leave it blank for server discovery.')
     with editing(root):
