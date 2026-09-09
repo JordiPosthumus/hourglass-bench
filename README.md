@@ -115,3 +115,9 @@ See [the exact prompt contract](docs/prompt-contract.md).
 Comparisons default to all hardware and include runs with the same major release and exact frozen questions, order, weights and repeat counts. Minor and patch releases do not hide earlier runs. Use Same hardware to narrow the comparison. Original scores remain unchanged; chart labels disclose each run's release, scoring policy and question deadline.
 
 Major releases mark incompatible benchmark generations. Minor releases add functionality or explicitly versioned evaluation policies; patch releases fix implementation and presentation. The release number alone never establishes identical conditions: frozen bank identity and recorded policies remain authoritative.
+
+## Starting, stopping and resuming
+
+Run `./start-hourglass-bench.sh` in your own Terminal; it opens the UI. Keep that Terminal open. On macOS, `./stop-hourglass-bench.sh` cancels queued work, asks the active test to stop, waits for results to be saved, and closes only this checkout's UI and report helper. Model servers remain running.
+
+Use **Resume run** to continue a stopped evaluation with its recorded time and completed answers. After an interrupted controller, startup can also recover the clock when a finished phase and a persisted stopped-Pi shutdown trace agree. Recovery backs up the original manifest and supporting evidence, retains the completed answers, charges interrupted work, and excludes downtime. Without that evidence, the clock is shown as unavailable instead of a misleading zero or fresh hour.

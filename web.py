@@ -18,6 +18,7 @@ import hour_deadline
 import attempt_annotations
 import score_weights
 import score_publisher
+import run_recovery
 
 ROOT = Path(__file__).resolve().parent
 TASKS, RESULTS, LOGS = ROOT/'tasks', ROOT/'results', ROOT/'logs'
@@ -136,7 +137,7 @@ def resume_plan(job, manifest, rows):
             'version_warning':f"This run began on v{manifest['benchmark_version']}; continuing on v{hourglass.BENCHMARK_VERSION} mixes versions and is excluded from calibration." if mixed else None}
 
 def public_job(job, rows=None):
-    result={k:job.get(k) for k in ('id','label','model','scoring_policy','tasks','repeat','state','rc','created','started','ended','current_task','completed_tasks','total_tasks','error','stopped_after','resume_count','stop_after_wrong','stop_requested','stop_reason','active_intervals','hour_timing_unknown')}
+    result={k:job.get(k) for k in ('id','label','model','scoring_policy','tasks','repeat','state','rc','created','started','ended','current_task','completed_tasks','total_tasks','error','stopped_after','resume_count','stop_after_wrong','stop_requested','stop_reason','active_intervals','hour_timing_unknown','timing_recoveries')}
     if rows is not None:
         manifest=read_json(ROOT/'evaluations'/(job['id']+'.json'))
         if manifest:
@@ -381,6 +382,17 @@ def restore_job_history():
             backup.mkdir(parents=True,exist_ok=True)
             calibration.write(backup/'evaluation-before.json',prior)
             calibration.write(path,m)
+        recovered=run_recovery.recover(ROOT,m)
+        if recovered is not None:
+            restored,evidence=recovered
+            backup=ROOT/'backups'/('recovered-run-'+time.strftime('%Y%m%dT%H%M%SZ',time.gmtime())+'-'+m['id'])
+            backup.mkdir(parents=True,exist_ok=True)
+            calibration.write(backup/'evaluation-before.json',m)
+            for proof in evidence.pop('files'):
+                shutil.copy2(proof,backup/proof.name)
+            calibration.write(backup/'recovery.json',evidence)
+            calibration.write(path,restored)
+            m=restored;state=m['state']
         done.append({**m,'state':state,'tasks':m.get('order') or [t['task'] for t in m['expected']],
                      'total_tasks':len(m['expected']), 'label':m.get('label',m['model']+' · saved evaluation')})
 
