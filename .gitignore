@@ -34,3 +34,5 @@ hardware-records/
 run-detail-choices.jsonl
 
 /model-scale.json
+
+/run-detail-setups.jsonl

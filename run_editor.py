@@ -62,6 +62,7 @@ def save(root,manifest,body):
             if not any(c['field']==key and c['value']==value for c in choices):
                 choice={'id':uuid.uuid4().hex,'field':key,'value':value,'created_at':record['recorded_at']}
                 append_line(Path(root)/'run-detail-choices.jsonl',choice);choices.append(choice)
+        remember_setup(root,manifest,record)
         return record
 
 
@@ -105,3 +106,44 @@ def copy_setup(root,source,manifest):
         target=Path(root)/'hardware-records'/(manifest['id']+'.json');target.parent.mkdir(parents=True,exist_ok=True)
         hardware={**hardware,'copied_from':source['id']}
         target.write_text(json.dumps(hardware,indent=2)+'\n')
+
+def setup_key(manifest):
+    """Exact execution configuration and recorded inference machine only."""
+    import hashlib
+    hardware=manifest.get('hardware') or {}
+    if not manifest.get('config_hash') or not manifest.get('model'):return None
+    identity={'model':manifest['model'],'config_hash':manifest['config_hash'],
+              'machine':hardware.get('machine_key'),'hardware':hardware.get('label')}
+    return hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest()
+
+def remember_setup(root,manifest,record):
+    key=setup_key(manifest)
+    if key:
+        append_line(Path(root)/'run-detail-setups.jsonl',{'key':key,'source_run':manifest['id'],
+                    'recorded_at':record['recorded_at'],'values':dict(record['values'])})
+
+def reusable_setup(root,manifest):
+    """Also discover pre-feature setups in surviving runs and deletion backups."""
+    key=setup_key(manifest)
+    if not key:return None
+    root=Path(root)
+    candidates=[r for r in read_lines(root/'run-detail-setups.jsonl') if r.get('key')==key]
+    paths=list((root/'evaluations').glob('*.json'))+list((root/'backups').glob('cleared-run-*/evaluation.json'))
+    for path in paths:
+        try:
+            previous=json.loads(path.read_text())
+            if setup_key(previous)!=key or previous.get('id')==manifest.get('id'):continue
+            records=read_lines(path.parent/(previous['id']+'.details.jsonl'))
+            if records:
+                r=records[-1]
+                candidates.append({'key':key,'source_run':previous['id'],'recorded_at':r['recorded_at'],'values':r['values']})
+        except (OSError,ValueError,KeyError,TypeError):continue
+    return max(candidates,key=lambda r:r['recorded_at']) if candidates else None
+
+def reuse_setup(root,manifest):
+    with LOCK:
+        if snapshot(root,manifest['id']):return None
+        prior=reusable_setup(root,manifest)
+        if prior is None:return None
+        return save(root,manifest,{'values':prior['values'],'applies_from':'run_start',
+                    'reason':'Reused saved editor setup from run '+prior['source_run']+' for the same configuration and hardware. Confirm reported details still apply.'})

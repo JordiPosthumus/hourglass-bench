@@ -248,6 +248,8 @@ def clear_job(body):
         stamp=time.strftime('%Y%m%dT%H%M%SZ',time.gmtime())+'-'+uuid.uuid4().hex[:6]
         backup=ROOT/'backups'/('cleared-run-'+stamp+'-'+jid);backup.mkdir(parents=True)
         source=ROOT/'evaluations'/(jid+'.json');shutil.copy2(source,backup/'evaluation.json')
+        details=run_editor.snapshot(ROOT,jid)
+        if details:run_editor.remember_setup(ROOT,manifest,details)
         settings_path=ROOT/'evaluations'/(jid+'.settings.jsonl')
         if settings_path.exists():shutil.copy2(settings_path,backup/'user-settings.jsonl')
         experiment_path=ROOT/'evaluations'/(jid+'.experiment.json')
@@ -457,6 +459,7 @@ def enqueue(body):
         if source and source['model']!=model:raise ValueError('Copied run details belong to another model. Clear the copied setup before changing models.')
         manifest=calibration.evaluation_manifest(ROOT,job,hourglass.BENCHMARK_VERSION,config)
         if source:run_editor.copy_setup(ROOT,source,manifest)
+        else:run_editor.reuse_setup(ROOT,manifest)
         queue.append(job);condition.notify_all()
     return job
 

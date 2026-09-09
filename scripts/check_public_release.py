@@ -8,7 +8,7 @@ import sys
 root=Path(__file__).resolve().parents[1]
 files=subprocess.check_output(['git','ls-files','-z'],cwd=root).decode().split('\0')
 private={'tasks','incoming','banks','question-banks','results','evaluations','sandboxes','logs','backups','hardware-records'}
-blocked={'model-scale.json','models.json','provenance.json','calibration.json','leaderboard.md','frontier.md','attempt-annotations.json','timing-corrections.json','hardware-profiles.json','.machine-id','docs/MAINTAINER-HANDOFF.md'}
+blocked={'run-detail-setups.jsonl','run-detail-choices.jsonl','model-scale.json','models.json','provenance.json','calibration.json','leaderboard.md','frontier.md','attempt-annotations.json','timing-corrections.json','hardware-profiles.json','.machine-id','docs/MAINTAINER-HANDOFF.md'}
 errors=[]
 for name in filter(None,files):
     p=Path(name)
