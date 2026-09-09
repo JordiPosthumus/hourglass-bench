@@ -4,6 +4,14 @@ import math
 
 COLORS=('#177b61','#5079c1','#bd7c39','#a26c99','#469aac','#9a9450')
 
+def rules_label(report):
+    version=report.get('benchmark_version') or 'unknown'
+    policy=report.get('scoring') or 'unknown scoring'
+    limit=report.get('execution',{}).get('question_timeout_s')
+    deadline=f'{limit:g}s/question' if isinstance(limit,(int,float)) and limit>0 else ('900s/question' if report.get('question_timeout_policy')=='question-900s-auto-advance-v1' else 'legacy question limits' if not report.get('question_timeout_policy') else str(report['question_timeout_policy']))
+    return f'v{version} · {policy} · {deadline}'
+
+
 def auc(curve, final=False, window_s=3600):
     """Integrate the same recorded step function shown in the chart."""
     area=0.;last_time=0.;last_value=0.
@@ -42,7 +50,7 @@ def measured_points(curve):
 
 
 def progress_chart(reports,scope='same'):
-    width=1100;height=620+len(reports)*57;left,right,top,bottom=82,1030,132,446
+    width=1100;height=620+len(reports)*77;left,right,top,bottom=82,1030,132,446
     values=[0,1]+[p['weighted'] for r in reports for p in r['curve']]+[r['weighted_points'] for r in reports]
     ymin,ymax=min(values),max(values);span=ymax-ymin
     ymin-=span*.04 if ymin<0 else 0;ymax+=span*.04
@@ -67,9 +75,9 @@ def progress_chart(reports,scope='same'):
         out.append(f'<polyline points="{coords}" fill="none" stroke="{color}" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"{dash}/>')
         for p in measured_points(r['curve'])[1:]:
             out.append(f'<circle cx="{x(p["seconds"]):.2f}" cy="{y(p["weighted"]):.2f}" r="3.6" fill="white" stroke="{color}" stroke-width="2"><title>{esc(r["model"])}: {p["weighted"]:.2f} points at {p["seconds"]/60:.2f} active minutes</title></circle>')
-        yy=547+i*57;star='*' if r.get('clock_adjustment_seconds') else '';a=r.get('auc',{}).get('point_minutes') if r.get('auc',{}).get('state')=='final' else None;auc_label=f' · AUC {a:.2f} point-min' if a is not None else ' · AUC pending' if r.get('auc') else ''
+        yy=547+i*77;star='*' if r.get('clock_adjustment_seconds') else '';a=r.get('auc',{}).get('point_minutes') if r.get('auc',{}).get('state')=='final' else None;auc_label=f' · AUC {a:.2f} point-min' if a is not None else ' · AUC pending' if r.get('auc') else ''
         name=r['model'];short=name if len(name)<=102 else name[:99]+'…'
-        out.append(f'<path d="M40 {yy-5}H66" stroke="{color}" stroke-width="3"{dash}/><text x="78" y="{yy}" font-size="14" font-weight="600"><title>{esc(name)}</title>{esc(short)}</text><text x="78" y="{yy+21}" font-size="12" fill="#71827a">{r["weighted_points"]:.2f}{star} points · {r.get("raw_correct",0)} correct · {esc(r.get("state","unknown"))}{auc_label}</text>')
+        out.append(f'<path d="M40 {yy-5}H66" stroke="{color}" stroke-width="3"{dash}/><text x="78" y="{yy}" font-size="14" font-weight="600"><title>{esc(name)}</title>{esc(short)}</text><text x="78" y="{yy+21}" font-size="12" fill="#71827a">{r["weighted_points"]:.2f}{star} points · {r.get("raw_correct",0)} correct · {esc(r.get("state","unknown"))}{auc_label}</text><text x="78" y="{yy+39}" font-size="11" fill="#71827a">{esc(r.get("hardware",{}).get("label","Hardware not recorded"))} · {esc(rules_label(r))}</text>')
     out.append(f'<text x="40" y="{height-27}" font-size="11" fill="#71827a">Each step marks the score after a final submission. AUC is the area under this exact step graph.</text>')
     if any(r.get('clock_adjustment_seconds') for r in reports):out.append(f'<text x="40" y="{height-10}" font-size="10" fill="#71827a">*Includes a disclosed clock adjustment.</text>')
     out.append('</g></svg>');return ''.join(out)

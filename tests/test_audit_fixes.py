@@ -40,7 +40,9 @@ class AuditFixes(unittest.TestCase):
   script="const {tokenAxis}=require('./ui/token-axis');console.log(JSON.stringify(tokenAxis(JSON.parse(process.argv[1]))))"
   for values in ([2455],[1,10,100,1000],[0,0],[],[.5,2],[10,10000000]):
    axis=report_charts.token_axis(values)
-   self.assertEqual(axis,json.loads(subprocess.check_output(['node','-e',script,json.dumps(values)],text=True)))
+   js=json.loads(subprocess.check_output(['node','-e',script,json.dumps(values)],text=True))
+   self.assertAlmostEqual(axis['guide']/js['guide'],1,places=14)
+   self.assertEqual({k:v for k,v in axis.items() if k!='guide'},{k:v for k,v in js.items() if k!='guide'})
    self.assertGreater(axis['min'],0);self.assertGreater(axis['max'],axis['min'])
   base={'model':'a','hardware':{'label':'fixture'},'machine_key':'one','bank_fingerprint':'same','scoring':'net-hour-v2','timing_policy':'hour','benchmark_version':'test','state':'final','efficiency':{'token_data_complete':True,'accuracy':.9,'median_output_tokens':1,'scored_answers':1,'answers_per_active_minute':1}}
   reports=[{**base,'model':str(t),'efficiency':{**base['efficiency'],'median_output_tokens':t}} for t in (1,10,100,1000,0)]

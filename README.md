@@ -109,3 +109,9 @@ Run configuration is captured at enqueue time and passed unchanged to each quest
 New run copies the selected run’s model, question selection, repeats and recorded details, while starting a new clock under the current grading policy. Run editor labels populate score preview; notes remain local. Explicit report-label overrides remain until the run details change. Token-efficiency charts use a base-10 logarithmic x-axis, with fewer tokens to the right; zero-token points are omitted and counted in the caption.
 
 See [the exact prompt contract](docs/prompt-contract.md).
+
+## Release versions and comparisons
+
+Comparisons default to all hardware and include runs with the same major release and exact frozen questions, order, weights and repeat counts. Minor and patch releases do not hide earlier runs. Use Same hardware to narrow the comparison. Original scores remain unchanged; chart labels disclose each run's release, scoring policy and question deadline.
+
+Major releases mark incompatible benchmark generations. Minor releases add functionality or explicitly versioned evaluation policies; patch releases fix implementation and presentation. The release number alone never establishes identical conditions: frozen bank identity and recorded policies remain authoritative.

@@ -54,7 +54,9 @@ def build(root, job, rows, manifest):
             'active_seconds':round(h['elapsed_s'],3),'window_seconds':3600,
             'breakdown':h['breakdown'],'curve':points,
             'clock_adjustment_seconds':round(sum(c['credit_s'] for c in credits),3),
-            'execution':{'stop_after_wrong':job.get('stop_after_wrong',20),'repeat':manifest.get('repeat',1)},
+            'question_timeout_policy':job.get('question_timeout_policy'),
+            'timeouts':h.get('timeouts',0),
+            'execution':{'question_timeout_s':job.get('question_timeout_s'),'stop_after_wrong':job.get('stop_after_wrong',20),'repeat':manifest.get('repeat',1)},
             'configuration_disclosure':'Model settings not supplied; compare only equivalent settings.'}
     report['unsupported_vision_questions']=len({r['task'] for active,r in events if r.get('score_reason')=='unsupported_vision'})
     report.update(run_key=hashlib.sha256(str(job['id']).encode()).hexdigest()[:24],
@@ -80,8 +82,11 @@ def build(root, job, rows, manifest):
 def compatible_reports(reports, scope='same'):
     if scope not in ('same','all'):raise ValueError('Invalid comparison scope.')
     if not reports:raise ValueError('No reports to compare.')
-    keys=('bank_fingerprint','scoring','timing_policy','benchmark_version')+(() if scope=='all' else ('machine_key',))
-    return [r for r in reports if all(r.get(k)==reports[0].get(k) for k in keys)]
+    keys=('bank_fingerprint',)+(() if scope=='all' else ('machine_key',))
+    def major(report):
+        version=str(report.get('benchmark_version') or 'unknown')
+        return version.split('.')[0] if version.split('.')[0].isdigit() else version
+    return [r for r in reports if major(r)==major(reports[0]) and all(r.get(k)==reports[0].get(k) for k in keys)]
 
 
 def hardware_label(report):
@@ -89,7 +94,7 @@ def hardware_label(report):
 
 
 def comparison(reports, scope='same'):
-    """Overlay only reports from the same bank, order and score policy."""
+    """Compare the same frozen bank and major release, retaining recorded policies."""
     if not reports:raise ValueError('No reports to compare.')
     reference=reports[0]
     compatible=compatible_reports(reports,scope)
@@ -114,7 +119,7 @@ def quadrants(reports, scope='same'):
     x=lambda t:right-(math.log10(t)-math.log10(tmin))/(math.log10(tmax)-math.log10(tmin))*(right-left)
     y=lambda a:bottom-(a-amin)/(amax-amin)*(bottom-top)
     colors=['#28674f','#4268b0','#ac6630','#98577d','#368893']
-    height=650+len(points)*40
+    height=650+len(points)*58
     out=[f'<svg xmlns="http://www.w3.org/2000/svg" width="900" height="{height}" viewBox="0 0 900 {height}"><rect width="900" height="{height}" rx="16" fill="#ffffff"/><g font-family="sans-serif" fill="#34453d">',f'<text x="40" y="38" font-size="23">Accuracy × token efficiency × speed</text><text x="40" y="65" font-size="14">{html.escape("All hardware" if scope=="all" else hardware_label(reference))} · larger bubbles mean more scored answers per active minute</text>']
     for bx,by,fill in [(left,top,'#fff3d9'),(cx,top,'#e0f1e4'),(left,cy,'#f9e2df'),(cx,cy,'#e8edf8')]:
         out.append(f'<rect x="{bx}" y="{by}" width="{cx-left}" height="{cy-top}" fill="{fill}"/>')
@@ -131,7 +136,7 @@ def quadrants(reports, scope='same'):
         px,py=x(e['median_output_tokens']),y(e['accuracy']);color=colors[i%len(colors)]
         rate=f'{speed:.2f}/min' if speed is not None else 'speed unavailable'
         name=html.escape(r['model']+' · '+hardware_label(r));label=html.escape(f"{r['model']} · {hardware_label(r)} · {e['accuracy']*100:.1f}% correct · {e['median_output_tokens']:,.0f} tokens · {rate} · n={e['scored_answers']} · {r['state']}")
-        out.append(f'<circle cx="{px}" cy="{py}" r="{radius}" fill="{color}" fill-opacity=".75" stroke="white" stroke-width="3"><title>{label}</title></circle><text x="{px}" y="{py-radius-8}" text-anchor="{"end" if px>cx else "start"}" font-size="11" fill="{color}">{name}</text><text x="40" y="{607+i*40}" font-size="12" fill="{color}">{label}</text>')
+        out.append(f'<circle cx="{px}" cy="{py}" r="{radius}" fill="{color}" fill-opacity=".75" stroke="white" stroke-width="3"><title>{label}</title></circle><text x="{px}" y="{py-radius-8}" text-anchor="{"end" if px>cx else "start"}" font-size="11" fill="{color}">{name}</text><text x="40" y="{607+i*58}" font-size="12" fill="{color}">{label}</text><text x="40" y="{625+i*58}" font-size="11" fill="{color}">{html.escape(report_charts.rules_label(r))}</text>')
     if not points:out.append('<text x="460" y="280" text-anchor="middle">No complete output-token records for this comparison</text>')
     out.append(f'<text x="40" y="{height-20}" font-size="10">Logarithmic token axis; positive counts only ({omitted} zero-token runs omitted). Quadrants bisect the displayed ranges. Question subsets and tokenizers may differ. Bubble area is proportional to speed.</text></g></svg>')
     return {'quadrants.svg':''.join(out)}
@@ -145,7 +150,7 @@ def ranking(reports, scope='same'):
          f'<text x="36" y="70" font-size="14">{html.escape("All hardware" if scope=="all" else hardware_label(reports[0]))} · weighted points · higher is better</text>',
          '<text x="36" y="95" font-size="12" fill="#aebdd0">Selected run + latest matching run per model and machine. Partial and running scores are not extrapolated.</text>']
     for i,r in enumerate(ranked):
-        y=132+i*86;label=html.escape(r['model']);hardware=html.escape(hardware_label(r));value=r['weighted_points'];star='*' if r.get('clock_adjustment_seconds') else ''
+        y=132+i*86;label=html.escape(r['model']);hardware=html.escape(hardware_label(r)+' · '+report_charts.rules_label(r));value=r['weighted_points'];star='*' if r.get('clock_adjustment_seconds') else ''
         out.append(f'<text x="36" y="{y}" font-size="14">{i+1}. {label}</text><text x="36" y="{y+20}" font-size="12" fill="#aebdd0">{hardware}</text><rect x="{451+min(0,value)/maximum*415:.2f}" y="{y+30}" width="{abs(value)/maximum*415:.2f}" height="20" rx="3" fill="#74e5c4"><title>{label} · {hardware} · {value:.2f} points · {html.escape(r["state"])}</title></rect><text x="{463+value/maximum*415:.2f}" y="{y+45}" font-size="13">{value:.2f}{star} · {html.escape(r["state"])}</text>')
-    out.append(f'<text x="36" y="{height-18}" font-size="11" fill="#aebdd0">Same bank, order and scoring rules. Hardware and model settings affect results. *Clock adjustment, when marked.</text></g></svg>')
+    out.append(f'<text x="36" y="{height-18}" font-size="11" fill="#aebdd0">Same bank and major release; recorded scoring and deadlines may differ. *Clock adjustment, when marked.</text></g></svg>')
     return {'ranking.svg':''.join(out)}

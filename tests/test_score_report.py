@@ -66,3 +66,14 @@ class WeightedReportTests(unittest.TestCase):
         radii=sorted(float(c.attrib['r']) for c in circles)
         self.assertEqual(radii,[10,20]);self.assertEqual((radii[1]/radii[0])**2,4)
         self.assertIn('a',svg);self.assertIn('token efficiency',svg)
+
+class ComparisonReleaseTests(unittest.TestCase):
+    def test_point_releases_and_policy_differences_remain_visible(self):
+        old={'model':'flash','benchmark_version':'2.2.0','bank_fingerprint':'bank','machine_key':'old','scoring':'weighted-hour-v1','question_timeout_policy':None}
+        new={**old,'model':'new','benchmark_version':'2.5.0','machine_key':'new','scoring':'net-hour-v2','question_timeout_policy':'question-900s-auto-advance-v1'}
+        excluded=[{**new,'benchmark_version':'3.0.0'},{**new,'bank_fingerprint':'changed'}]
+        self.assertEqual(score_report.compatible_reports([new,old,*excluded],'all'),[new,old])
+        self.assertEqual(score_report.compatible_reports([new,old],'same'),[new])
+        self.assertIn('weighted-hour-v1',score_report.report_charts.rules_label(old))
+        self.assertIn('900s/question',score_report.report_charts.rules_label(new))
+        self.assertIn("get('scope',['all'])",Path('score_publisher.py').read_text())
