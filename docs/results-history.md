@@ -30,7 +30,7 @@ The JSON catalog supports future views such as per-configuration histories, spee
 
 ## Score curves and AUC
 
-The connected lines are a visual guide between measured completions. Actual points arrive at completion, so the AUC companion integrates the original step function, not the line's trapezoids. Its version is `weighted-step-auc-v1`.
+The graph stays flat between completions and steps up when points are earned. The AUC companion integrates this exact step function. Its version is `weighted-step-auc-v1`.
 
 `AUC (weighted point-minutes) = integral(score(t), t=0..60 active minutes)`
 

@@ -73,11 +73,20 @@ class AUCTests(unittest.TestCase):
   self.assertEqual(result['point_minutes'],600000)
   self.assertIsNone(result['normalization'])
   self.assertNotIn('maximum_points',result)
- def test_display_connects_completion_points_without_changing_raw_curve(self):
+ def test_completion_markers_do_not_change_raw_curve(self):
   import report_charts as c
   curve=[{'seconds':0,'weighted':0},{'seconds':900,'weighted':0},{'seconds':900,'weighted':2},{'seconds':1800,'weighted':2}]
   before=json.dumps(curve)
   self.assertEqual(c.measured_points(curve),[curve[0],curve[2],curve[3]])
+  self.assertEqual(json.dumps(curve),before)
+
+ def test_step_renderer_has_no_diagonal_score_segments(self):
+  import report_charts as c
+  curve=[{'seconds':0,'weighted':0},{'seconds':900,'weighted':2},{'seconds':1800,'weighted':3},{'seconds':3600,'weighted':3}]
+  before=json.dumps(curve);points=c.step_points(curve)
+  self.assertEqual(points,[{'seconds':0,'weighted':0},{'seconds':900,'weighted':0},{'seconds':900,'weighted':2},{'seconds':1800,'weighted':2},{'seconds':1800,'weighted':3},{'seconds':3600,'weighted':3}])
+  self.assertTrue(all(a['seconds']==b['seconds'] or a['weighted']==b['weighted'] for a,b in zip(points,points[1:])))
+  self.assertEqual(c.auc(points,True),c.auc(curve,True))
   self.assertEqual(json.dumps(curve),before)
 
 if __name__=='__main__':unittest.main()
