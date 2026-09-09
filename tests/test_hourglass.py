@@ -159,7 +159,7 @@ class WebTests(unittest.TestCase):
                {'id':'M1','tier':None,'level':'advanced_high_school','section':'math'},
                {'id':'M2','tier':None,'level':'advanced_undergraduate','section':'math'},
                {'id':'M3','tier':None,'level':'graduate','section':'math'}, {'id':'C9','tier':9,'section':'chart'}]
-        self.assertEqual(web.ordered_tasks(tasks,[t['id'] for t in tasks]),['C1','G1','M1','M2','C9','M3'])
+        self.assertEqual(web.ordered_tasks(tasks,[t['id'] for t in tasks]),['C1','M2','C9','G1','M3','M1'])
         self.assertEqual([web.run_tracking.difficulty_tier(t) for t in tasks],[1,1,1,5,9,9])
     def test_twenty_wrong_stop_and_correct_answer_reset(self):
         for correct_at in [None,19]:

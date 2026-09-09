@@ -1,0 +1,5 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert/strict');
+(async()=>{const els={};const el=id=>els[id]??=( {textContent:'old',scrollTop:0,clientHeight:1,scrollHeight:1,classList:{toggle(){},remove(){}}});let pending=[];
+const c={logId:null,$:el,allJobs:()=>[{id:'a',model:'A'},{id:'b',model:'B'}],fetch:()=>new Promise(resolve=>pending.push(resolve))};vm.createContext(c);const s=fs.readFileSync('ui/app.js','utf8');vm.runInContext(s.slice(s.indexOf('let logEpoch='),s.indexOf('function filteredResults')),c);
+c.selectLog('a');const old=c.loadLog();c.selectLog('b');assert.equal(el('jobLog').textContent,'');pending.shift()({ok:true,text:async()=>'STALE'});await old;assert.equal(el('jobLog').textContent,'');assert.ok(el('logTitle').textContent.includes('B'));
+const resume=c.loadLog();c.selectLog('b',true);pending.shift()({ok:false});await resume;assert.equal(el('jobLog').textContent,'');console.log('PASS: switch/resume clears immediately and ignores stale success/error responses');})().catch(e=>{console.error(e);process.exit(1)});

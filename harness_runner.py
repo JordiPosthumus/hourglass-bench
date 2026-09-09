@@ -1,5 +1,6 @@
 """Frozen Pi SDK adapter. Benchmark scoring remains outside the agent process."""
 import signal
+import re
 import base64, datetime, hashlib, json, mimetypes, pathlib, subprocess, tempfile, time, urllib.request
 ROOT=pathlib.Path(__file__).resolve().parent
 
@@ -22,6 +23,14 @@ def server_metadata(cfg):
             if isinstance(config.get('temperature'),(int,float)):
                 snapshot.update(temperature=config['temperature'],temperature_source='server loaded instance config')
     except Exception as e:snapshot['metadata_error']=str(e)
+    if not snapshot.get('context_window'):
+        try:
+            with urllib.request.urlopen(root+'/v1/models',timeout=30) as response:data=json.load(response)
+            model=next((m for m in data.get('data',[]) if m.get('id')==cfg['model']),{})
+            context=model.get('context_length') or model.get('top_provider',{}).get('context_length')
+            if type(context) is int and context>0:
+                snapshot.update(context_window=context,context_source='server /v1/models')
+        except Exception as e:snapshot['openai_metadata_error']=str(e)
     return snapshot
 
 def verify_frozen():
@@ -79,6 +88,9 @@ def run(task,cfg,workdir,sandboxed):
             if event.get('type')=='turn_start':print('MODEL Pi turn: waiting for response',flush=True)
             if event.get('type')=='tool_execution_start':
                 calls+=1;print('TOOL '+event.get('toolName',''),flush=True)
+            if event.get('type')=='tool_execution_end' and event.get('isError'):
+                detail='\n'.join(c.get('text','') for c in event.get('result',{}).get('content',[]) if c.get('type')=='text')
+                print('TOOL ERROR '+event.get('toolName','')+': '+detail,flush=True)
             if event.get('type')=='message_end' and event.get('message',{}).get('role')=='assistant':
                 thinking['thinking_content_observed'] |= any(c.get('type')=='thinking' and bool(c.get('thinking')) for c in event['message'].get('content',[]))
                 usage=event['message'].get('usage',{});pt+=usage.get('input',0)+usage.get('cacheRead',0)+usage.get('cacheWrite',0);ct+=usage.get('output',0)
@@ -89,6 +101,10 @@ def run(task,cfg,workdir,sandboxed):
         if rc or error or result is None:
             failure=hourglass.AgentRunError(error or stderr or f'Pi exited {rc} without result',trace,pt,ct,calls,started)
             failure.metrics.update(thinking_settings=thinking,requested_settings=requested,harness='pi',pi_version='0.85.1',pi_lock_sha256=frozen_hash,server_settings=metadata,temperature=metadata['temperature'],temperature_source=metadata['temperature_source'])
+            # Pi serializes provider exceptions, so restore the capability-error
+            # type that the scoring layer already handles as an unsupported zero.
+            if images and error and re.search(r'\b(?:400|415|422|500):',error) and hourglass.vision_rejection(error):
+                raise failure from hourglass.UnsupportedVision(error)
             raise failure
         metrics={'prompt_tokens':pt,'completion_tokens':ct,'tool_calls':calls,'duration_s':round(time.time()-started,3),
                  'thinking_settings':thinking,'requested_settings':requested,'termination':result['termination'],'harness':'pi','pi_version':'0.85.1','harness_sha256':hashlib.sha256((ROOT/'harness/pi.mjs').read_bytes()).hexdigest(),

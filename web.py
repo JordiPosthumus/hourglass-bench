@@ -10,6 +10,7 @@ import hourglass
 import calibration
 import run_tracking
 import settings_records
+import endpoint_hardware
 import hour_score
 import hour_deadline
 import attempt_annotations
@@ -53,21 +54,41 @@ def task_catalog():
                       'timeout_s':None,'max_turns':t.get('max_turns',30)})
     return [next(t for t in tasks if t['id']==tid) for tid in ordered_tasks(tasks,[t['id'] for t in tasks])]
 
+ORDER_POLICY = 'easy_medium_hard_rotating_sections_v1'
+
+
+def difficulty_band(task):
+    tier=task.get('order_tier',run_tracking.difficulty_tier(task))
+    if not isinstance(tier,(int,float)):return 'unknown'
+    section=task.get('section')
+    # Games use five tiers; charts and estimated math levels use ten.
+    easy,medium=(2,3) if section=='games' else (3,7)
+    return 'easy' if tier<=easy else 'medium' if tier<=medium else 'hard'
+
+
 def ordered_tasks(catalog, tids):
     lookup={t['id']:t for t in catalog}; buckets={}
-    for tid in tids:
+    for tid in dict.fromkeys(tids):
         t=lookup[tid];section=t.get('section') or 'code'
         section={'chart':'charts','math_logic':'math'}.get(section,section)
-        tier=t.get('order_tier',run_tracking.difficulty_tier(t))
-        tier=tier if isinstance(tier,(int,float)) else float('inf')
-        buckets.setdefault(tier,{}).setdefault(section,[]).append(tid)
-    ordered=[]
-    for tier in sorted(buckets):
-        sections={section:deque(sorted(ids)) for section,ids in sorted(buckets[tier].items())}
-        while any(sections.values()):
-            for ids in sections.values():
-                if ids:ordered.append(ids.popleft())
+        buckets.setdefault(difficulty_band(t),{}).setdefault(section,[]).append(tid)
+    for sections in buckets.values():
+        for section,ids in sections.items():
+            sections[section]=deque(sorted(ids,key=lambda tid:(lookup[tid].get('order_tier',run_tracking.difficulty_tier(lookup[tid])) or 0,tid)))
+    categories=sorted({s for sections in buckets.values() for s in sections})
+    ordered=[];cursors={};previous=None
+    while any(ids for sections in buckets.values() for ids in sections.values()):
+        bands=('easy','medium','hard') if any(ids for band in ('easy','medium','hard') for ids in buckets.get(band,{}).values()) else ('unknown',)
+        for band in bands:
+            sections=buckets.get(band,{})
+            cursor=cursors.get(band,0)
+            available=[(cursor+offset)%len(categories) for offset in range(len(categories)) if sections.get(categories[(cursor+offset)%len(categories)])]
+            if not available:continue
+            index=next((i for i in available if categories[i]!=previous),available[0])
+            section=categories[index]
+            ordered.append(sections[section].popleft());cursors[band]=(index+1)%len(categories);previous=section
     return ordered
+
 
 def valid_tasks(): return [t['id'] for t in task_catalog()]
 
@@ -135,9 +156,10 @@ def state():
     return {'app':'Hourglass Bench','version':2,'tasks':task_catalog(),'models':model_names(),
             'model_configs':doc.get('models',[]),'models_json':json.dumps(doc,indent=2),
             'model_errors':hourglass.validate_models(doc),'results':rows,
+            'endpoint_hardware':endpoint_hardware.snapshot(ROOT,doc.get('models',[])),
             'calibration_available':True,'benchmark_version':hourglass.BENCHMARK_VERSION,'harness':{'name':'pi','version':'0.85.1','temperature_policy':'server_default'},
             'score_policy':{'version':hour_score.VERSION,'window_s':hour_score.WINDOW_S,'metric':'distinct_correct_within_active_hour'},
-            'execution_policy':{'timeouts':False,'stop_after_wrong':run_tracking.STOP_AFTER_WRONG,'order':'estimated_tier_then_alternating_sections'},
+            'execution_policy':{'timeouts':False,'stop_after_wrong':run_tracking.STOP_AFTER_WRONG,'order':ORDER_POLICY},
             'provenance':read_json(ROOT/'provenance.json',{}),'jobs':jobs,
             'sandbox_available':shutil.which('sandbox-exec') is not None}
 
@@ -352,8 +374,11 @@ def enqueue(body):
     job={'id':uuid.uuid4().hex,'label':f'{model} · {len(tids)} tests','model':model,'tasks':tids,
          'repeat':repeat,'stop_after_wrong':run_tracking.STOP_AFTER_WRONG,'state':'pending','created':time.time(),'completed_tasks':0,'total_tasks':len(tids)}
     config=next(m for m in model_document()['models'] if m['name']==model)
-    calibration.evaluation_manifest(ROOT,job,hourglass.BENCHMARK_VERSION,config)
-    with condition:queue.append(job);condition.notify_all()
+    with condition:
+        if 'hardware_revision' in body and body['hardware_revision']!=endpoint_hardware.revision(endpoint_hardware.load(ROOT)):
+            raise ValueError('Hardware settings changed after review. Refresh and review the run again.')
+        calibration.evaluation_manifest(ROOT,job,hourglass.BENCHMARK_VERSION,config)
+        queue.append(job);condition.notify_all()
     return job
 
 def check_model(name):
@@ -388,7 +413,11 @@ class H(BaseHTTPRequestHandler):
             if u.path=='/api/log/full':
                 if not p.is_file():self._json({'error':'No log has been written yet.'},404);return
                 self.send_bytes(p.read_bytes(),ctype='text/plain; charset=utf-8');return
-            self._text(p.read_text()[-50000:] if p.is_file() else 'Waiting to start…');return
+            text=p.read_text() if p.is_file() else 'Waiting to start…'
+            # Show only the latest invocation; full history stays downloadable.
+            start=max(text.rfind('\nRUN · Hourglass Bench'),text.rfind('\nRESUME · Hourglass Bench'))
+            if start>=0:text=text[start:]
+            self._text(text[-50000:]);return
         if u.path=='/api/task':
             tid=q.get('id',[''])[0]
             if tid not in valid_tasks():self._json({'error':'Unknown test'},404);return
@@ -434,6 +463,10 @@ class H(BaseHTTPRequestHandler):
                     queue.remove(job);job.update(state='cancelled',ended=time.time());done.append(job)
                     calibration.update_evaluation(ROOT,job)
                 self._json({'ok':True});return
+            if route=='/api/endpoint-hardware':
+                with condition:
+                    result=endpoint_hardware.save(ROOT,model_document().get('models',[]),b)
+                self._json(result);return
             if route=='/api/models':
                 doc=json.loads(b.get('text',''));errors=hourglass.validate_models(doc)
                 if errors:raise ValueError('; '.join(errors))

@@ -13,7 +13,18 @@ def capture(root,config):
     profiles=json.loads(profiles_path.read_text()) if profiles_path.exists() else {}
     endpoint=config.get('base_url','')
     profile=profiles.get(endpoint)
-    if profile:
+    label=config.get('hardware')
+    if isinstance(label,str) and label.strip():
+        label=label.strip()
+        # Reuse an established identity when its recorded label is retained.
+        if profile and profile.get('label')==label:
+            identity=str(profile['machine_id'])
+            result={k:profile[k] for k in ('chip','memory_bytes','cpu_cores','gpu') if k in profile}
+        else:
+            identity='hardware-label:'+label.casefold()
+            result={}
+        result.update(label=label,machine_key=hashlib.sha256(identity.encode()).hexdigest(),source='owner supplied')
+    elif profile:
         # Remote hardware is owner supplied; never mistake the controller for the server.
         identity=profile.get('machine_id')
         if not identity:raise ValueError('Hardware profile requires a stable machine_id.')
@@ -67,20 +78,28 @@ def save_user_record(root,manifest,fields,known_machines,expected_revision):
         value=value.strip()
         if required and not value:raise ValueError(key+' is required.')
         return value
-    machine=fields.get('machine_key')
-    if machine=='new':machine=hashlib.sha256(uuid.uuid4().hex.encode()).hexdigest()
-    elif machine not in known_machines:raise ValueError('Select a recorded machine or create a new one.')
-    result={'machine_key':machine,'label':string('label',True),'chip':string('chip'),'source':'owner recorded','captured_at':dt.datetime.now(dt.timezone.utc).isoformat()}
-    for source,target,multiplier in [('memory_gib','memory_bytes',1024**3),('cpu_cores','cpu_cores',1)]:
-        value=fields.get(source)
-        if value in (None,''):continue
-        if isinstance(value,bool):raise ValueError('Invalid '+source+'.')
-        try:number=float(value)
-        except (TypeError,ValueError):raise ValueError('Invalid '+source+'.')
-        if not math.isfinite(number) or number<=0 or number>1000000 or (source=='cpu_cores' and not number.is_integer()):raise ValueError('Invalid '+source+'.')
-        result[target]=round(number*multiplier)
-    gpu=string('gpu')
-    if gpu:result['gpu']=[{'model':gpu}]
+    if fields.get('label_only'):
+        label=string('label',True)
+        if label==current.get('label') and current.get('source')!='unknown':
+            result=dict(current)
+        else:
+            result={'machine_key':hashlib.sha256(('hardware-label:'+label.casefold()).encode()).hexdigest(),'label':label}
+        result.update(source='owner recorded',captured_at=dt.datetime.now(dt.timezone.utc).isoformat())
+    else:
+        machine=fields.get('machine_key')
+        if machine=='new':machine=hashlib.sha256(uuid.uuid4().hex.encode()).hexdigest()
+        elif machine not in known_machines:raise ValueError('Select a recorded machine or create a new one.')
+        result={'machine_key':machine,'label':string('label',True),'chip':string('chip'),'source':'owner recorded','captured_at':dt.datetime.now(dt.timezone.utc).isoformat()}
+        for source,target,multiplier in [('memory_gib','memory_bytes',1024**3),('cpu_cores','cpu_cores',1)]:
+            value=fields.get(source)
+            if value in (None,''):continue
+            if isinstance(value,bool):raise ValueError('Invalid '+source+'.')
+            try:number=float(value)
+            except (TypeError,ValueError):raise ValueError('Invalid '+source+'.')
+            if not math.isfinite(number) or number<=0 or number>1000000 or (source=='cpu_cores' and not number.is_integer()):raise ValueError('Invalid '+source+'.')
+            result[target]=round(number*multiplier)
+        gpu=string('gpu')
+        if gpu:result['gpu']=[{'model':gpu}]
     stamp=dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
     backup=root/'backups'/('hardware-amendment-'+stamp);backup.mkdir(parents=True)
     (backup/'previous-effective-hardware.json').write_text(json.dumps(current,indent=2)+'\n')

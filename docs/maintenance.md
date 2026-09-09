@@ -116,3 +116,15 @@ Use **Record hardware** on the main run card or edit the hardware section in **S
 Changing the form disables publishing until saved. A stale preview cannot overwrite a newer hardware record or publish outdated selected-run hardware. Unknown hardware must be recorded before publication. The exact reviewed hardware appears in report JSON and the README.
 
 The sixth report file, `quadrants.svg`, includes the accuracy/token-efficiency/speed bubble chart and is embedded in the published README. Its aggregate data is included in `report.json` and `comparison.json`. Export uses all scored answers in the compatible runs, not temporary Results-page filters. Bubble area scales with scored answers per active minute, including the run's thinking/tool overhead; unknown timing has no speed value. The same-machine/bank/policy grouping and adaptive bisected axes remain in force. Partial runs are explicitly labeled. Scores and chart files are uploaded only by the explicit publish action.
+
+
+## Hardware, ordering and comparison updates
+Hardware entry is one optional `hardware` string on each model in `models.json`, editable in the same Settings card. Existing endpoint profiles remain a fallback; past run records remain frozen. Reuse a description for the same machine and distinguish separate machines in their descriptions.
+
+New runs use a fixed easy → medium → hard cycle, rotating categories within each band. Games use tiers 1–2 / 3 / 4–5; charts and estimated math levels use 1–3 / 4–7 / 8–10. Every selected question is retained; exhausted bands are skipped and unknown difficulty follows classified questions. Existing runs resume their original order. Exact order is included in comparison fingerprints. Difficulty does not modify reasoning settings or token limits; actual reasoning time is determined by the model.
+
+Run charts offer same/all hardware scope and cumulative/ranking/accuracy-efficiency views. All-hardware comparisons still match bank, order, repeats, scoring and timing policies, and benchmark version. The selected run is compared with the latest matching run per model and machine. Rankings show actual weighted points, hardware and score status without extrapolation. Report previews include `ranking.svg` and record the comparison scope.
+
+The log display clears on new run, run selection and resume. It shows the current invocation; Copy full log preserves earlier resume segments. Tool validation errors are printed with details, and global leaderboard tables no longer repeat in per-question console logs. Saved leaderboards still update.
+
+Context discovery falls back to the matching `/v1/models` entry when LM Studio metadata is unavailable. Explicit image-support rejections from Pi are classified under the existing unsupported-vision zero-score policy; malformed images, authentication and context errors remain failures. Model settings are not automatically changed.

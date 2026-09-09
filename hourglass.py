@@ -574,6 +574,8 @@ def validate_models(doc):
                 errors.append(f"Model {i+1}: base_url must be an HTTP(S) URL")
         if "supports_vision" in m and type(m["supports_vision"]) is not bool:
             errors.append(f"Model {i+1}: supports_vision must be true or false")
+        if "hardware" in m and (not isinstance(m["hardware"], str) or len(m["hardware"])>160 or any(ord(c)<32 for c in m["hardware"])):
+            errors.append(f"Model {i+1}: hardware must be a single line of text (up to 160 characters)")
         if "extra" in m and not isinstance(m["extra"], dict):
             errors.append(f"Model {i+1}: extra must be an object")
     return errors
@@ -676,8 +678,8 @@ def cmd_run(args):
         if metrics.get("error"):
             print("ERROR: " + metrics["error"], flush=True)
         if workdir is not None: shutil.rmtree(workdir, ignore_errors=True)
-    cmd_leaderboard(None)
-    cmd_frontier(None)
+    cmd_leaderboard(None,emit=not bool(os.environ.get('HOURGLASS_EVALUATION_ID')))
+    cmd_frontier(None,emit=not bool(os.environ.get('HOURGLASS_EVALUATION_ID')))
     if had_error:
         raise SystemExit(1)
 
