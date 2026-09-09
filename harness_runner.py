@@ -16,11 +16,16 @@ def server_metadata(cfg):
     snapshot={'temperature':None,'temperature_source':'server default — not reported','captured_at':datetime.datetime.now(datetime.timezone.utc).isoformat()}
     try:
         with urllib.request.urlopen(root+'/api/v1/models',timeout=30) as response:data=json.load(response)
-        model=next((m for m in data.get('models',[]) if m.get('key')==cfg['model']),None)
+        models=[m for m in data.get('models',[]) if isinstance(m,dict)]
+        def instances(m):return [i for i in (m.get('loaded_instances') or []) if isinstance(i,dict)]
+        # Served aliases and explicit disk variants are distinct from catalog keys.
+        model=next((m for m in models if any(i.get('id')==cfg['model'] for i in instances(m))),None)
+        if model is None:model=next((m for m in models if m.get('key')==cfg['model']),None)
+        if model is None:model=next((m for m in models if cfg['model']==m.get('selected_variant') or cfg['model'] in (m.get('variants') or [])),None)
         if model:
             snapshot['model']=model
-            instances=model.get('loaded_instances') or []
-            instance=next((i for i in instances if i.get('id')==cfg['model']),instances[0] if instances else {})
+            loaded=instances(model)
+            instance=next((i for i in loaded if i.get('id')==cfg['model']),loaded[0] if loaded else {})
             config=instance.get('config',{})
             snapshot['context_window']=config.get('context_length') or model.get('max_context_length')
             if isinstance(config.get('temperature'),(int,float)):

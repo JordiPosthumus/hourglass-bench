@@ -44,8 +44,12 @@ def normalize_lms(downloaded, loaded):
         quant=quant.get('name') if isinstance(quant,dict) else str(quant)
         key=model.get('modelKey') or base.get('modelKey') or value.get('identifier')
         identifier=instance.get('identifier') if instance else key
+        # The selected disk variant is served under the catalog's base ID.
+        # Other variants retain their explicit key until loaded with an alias.
+        if not instance and key==base.get('selectedVariant') and base.get('modelKey'):
+            identifier=base['modelKey']
         if not isinstance(identifier,str) or not identifier:return None
-        return {'key':('loaded:' if instance else 'disk:')+identifier,
+        return {'key':('loaded:'+identifier if instance else 'disk:'+key),
                 'model_id':identifier,'model_key':key,
                 'title':value.get('displayName') or identifier,'quantization':quant,
                 'format':value.get('format'),'parameters':value.get('paramsString'),
