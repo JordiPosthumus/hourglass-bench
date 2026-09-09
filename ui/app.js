@@ -49,23 +49,30 @@ function efficiencyStats(jobs,rows){
 }
 function drawScatter(stats){
   const left=80,right=670,top=60,bottom=410,W=right-left,H=bottom-top;
-  const max=Math.max(1000,Math.ceil(Math.max(0,...stats.map(s=>s.tokens),stats.length?median(stats.map(s=>s.tokens))*2/1.2:0)*1.2/1000)*1000);
-  const x=t=>right-t/max*W,y=a=>bottom-a*H,fmt=n=>Math.round(n).toLocaleString();
-  const tokenGuide=stats.length?median(stats.map(s=>s.tokens)):max/2;
-  const accuracyGuide=.75;
+  const fit=(values,fallback,minSpan,ceiling=Infinity)=>{
+    if(!values.length)return fallback;
+    const lo=Math.min(...values),hi=Math.max(...values),span=Math.max(hi-lo,minSpan);
+    const pad=Math.max(span*.15,(span-(hi-lo))/2);
+    const step=10**Math.floor(Math.log10(span/4));
+    return [Math.max(0,Math.floor((lo-pad)/step)*step),Math.min(ceiling,Math.ceil((hi+pad)/step)*step)];
+  };
+  const [tokenMin,tokenMax]=fit(stats.map(s=>s.tokens),[0,1000],Math.max(100,...stats.map(s=>s.tokens*.1)));
+  const [accuracyMin,accuracyMax]=fit(stats.map(s=>s.accuracy),[0,1],.1,1);
+  const x=t=>right-(t-tokenMin)/(tokenMax-tokenMin)*W,y=a=>bottom-(a-accuracyMin)/(accuracyMax-accuracyMin)*H,fmt=n=>Math.round(n).toLocaleString();
+  const tokenGuide=(tokenMin+tokenMax)/2,accuracyGuide=(accuracyMin+accuracyMax)/2;
   const sx=x(tokenGuide),sy=y(accuracyGuide),colors=['#28674f','#4268b0','#ac6630','#98577d','#368893'];
   let html='<text x="80" y="27" fill="#505e56" font-size="14">Accuracy ↑</text>';
   const box=(bx,by,bw,bh,color)=>`<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" fill="${color}"/>`;
   html+=box(left,top,sx-left,sy-top,'#fff3d9')+box(sx,top,right-sx,sy-top,'#e0f1e4')+box(left,sy,sx-left,bottom-sy,'#f9e2df')+box(sx,sy,right-sx,bottom-sy,'#e8edf8');
   html+=`<text x="${left+10}" y="${top+19}" fill="#876628" font-size="10">ACCURATE · MORE TOKENS</text><text x="${right-10}" y="${top+19}" text-anchor="end" fill="#28674f" font-size="10">ACCURATE · FEWER TOKENS ↗</text><text x="${left+10}" y="${bottom-12}" fill="#9a5048" font-size="10">LESS ACCURATE · MORE TOKENS</text><text x="${right-10}" y="${bottom-12}" text-anchor="end" fill="#506a94" font-size="10">LESS ACCURATE · FEWER TOKENS</text>`;
-  for(let i=0;i<=4;i++){const yy=y(i/4);html+=`<line x1="80" x2="670" y1="${yy}" y2="${yy}" stroke="#ffffff" stroke-width="1.5"/><text x="64" y="${yy+5}" text-anchor="end" fill="#717b77" font-size="13">${i*25}%</text>`}
+  for(let i=0;i<=4;i++){const accuracy=accuracyMin+(accuracyMax-accuracyMin)*i/4,yy=y(accuracy);html+=`<line x1="80" x2="670" y1="${yy}" y2="${yy}" stroke="#ffffff" stroke-width="1.5"/><text x="64" y="${yy+5}" text-anchor="end" fill="#717b77" font-size="13">${(accuracy*100).toFixed(1)}%</text>`}
   html+=`<path d="M${sx} ${top}V${bottom}M${left} ${sy}H${right}" stroke="#9ca89e" stroke-dasharray="5 5"/>`;
-  for(let i=0;i<=4;i++)html+=`<text x="${left+i*W/4}" y="442" text-anchor="middle" font-size="12" fill="#717b77">${fmt(max*(1-i/4))}</text>`;
+  for(let i=0;i<=4;i++)html+=`<text x="${left+i*W/4}" y="442" text-anchor="middle" font-size="12" fill="#717b77">${fmt(tokenMax-(tokenMax-tokenMin)*i/4)}</text>`;
   html+='<text x="375" y="474" text-anchor="middle" font-size="14" fill="#505e56">Median output tokens per scored answer · fewer →</text>';
   stats.forEach((s,i)=>{const color=colors[i%colors.length],px=x(s.tokens),py=y(s.accuracy);html+=`<circle cx="${px}" cy="${py}" r="10" fill="${color}" stroke="white" stroke-width="3"><title>${esc(s.name)}: ${(s.accuracy*100).toFixed(1)}% correct, median ${fmt(s.tokens)} output tokens, ${s.n} scored answers</title></circle><text x="${px}" y="${py-17}" text-anchor="${px>375?'end':'start'}" font-size="12" font-weight="600" fill="${color}">${esc(s.model)}</text>`});
   if(!stats.length)html+='<text x="375" y="220" text-anchor="middle" fill="#717b77">No scored runs with complete output-token records</text>';
   $('scatter').innerHTML=html;
-  $('quadrantGuide').textContent=`Visual guides: ${(accuracyGuide*100).toFixed(1)}% accuracy and ${fmt(tokenGuide)} output tokens (the displayed-run median). These are visual references, not pass/fail grades.`;
+  $('quadrantGuide').textContent=`Axes fit the displayed data, with padding. Quadrants bisect both ranges at ${(accuracyGuide*100).toFixed(1)}% accuracy and ${fmt(tokenGuide)} output tokens. Scales update with the data; these are relative regions, not pass/fail grades.`;
   $('scatterLegend').innerHTML=stats.map((s,i)=>`<div><span style="color:${colors[i%colors.length]}">${esc(s.name)}</span><small>${(s.accuracy*100).toFixed(1)}% correct · median ${fmt(s.tokens)} output tokens · ${s.n} scored answers · ${esc(s.state)}</small></div>`).join('');
 }
 
