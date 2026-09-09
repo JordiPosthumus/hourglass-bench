@@ -6,6 +6,7 @@ import json
 import statistics
 import math
 import hour_score
+import scoring_policy
 import score_weights
 import hardware_records
 import results_history
@@ -39,12 +40,13 @@ def build(root, job, rows, manifest):
     points.append({'seconds':round(min(3600,h['elapsed_s']),3),'weighted':h['weighted_points'],'correct':h['points']})
 
     scored=[r for r in rows if r.get('evaluation_id')==job['id'] and r.get('task') in {t['task'] for t in expected} and r.get('status')=='completed' and r.get('termination')!='not_attempted' and r.get('score_reason') not in ('wrong_streak_limit','five_wrong_in_row')]
+    if job.get('scoring_policy')==scoring_policy.NET:scored=[r for r in scored if scoring_policy.final_answer(r)]
     tokens=[r.get('completion_tokens') for r in scored]
     complete=bool(scored) and all(type(t) in (int,float) and math.isfinite(t) and t>=0 for t in tokens)
     efficiency={'accuracy':sum(bool(r.get('solved')) for r in scored)/len(scored) if scored else None,'median_output_tokens':statistics.median(tokens) if complete else None,'scored_answers':len(scored),'token_data_complete':complete,'answers_per_active_minute':len(scored)/(h['elapsed_s']/60) if h['elapsed_s']>0 and not job.get('hour_timing_unknown') else None}
     hardware=hardware_records.recorded(root,manifest)
     report={'efficiency':efficiency,'hardware':hardware,'machine_key':hardware['machine_key'],'format':'hourglass-public-report-v1','model':str(job['model']),
-            'created_at':dt.datetime.now(dt.timezone.utc).isoformat(),'scoring':h['weighted_version'],
+            'created_at':dt.datetime.now(dt.timezone.utc).isoformat(),'scoring':h['scoring_policy'],'gross_points':h['gross_points'],'net_points':h['net_points'],'incorrect_questions':h['incorrect_questions'],'abstained_questions':h['abstained_questions'],'penalty_points':h['penalty_points'],
             'timing_policy':h['version'],'benchmark_version':manifest['benchmark_version'],
             'bank_fingerprint':hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest(),
             'state':h['state'],'weighted_points':h['weighted_points'],'raw_correct':h['points'],
@@ -59,9 +61,11 @@ def build(root, job, rows, manifest):
                   run_date=dt.datetime.fromtimestamp(job.get('started') or job.get('created') or 0,dt.timezone.utc).isoformat(),
                   experiment=results_history.load(root,job['id']))
     report['auc']=report_charts.auc(points,final=h['state']=='final')
+    report['auc']['scoring_policy']=h['scoring_policy']
     star='*' if credits else ''
     svg=report_charts.progress_chart([report])
     readme=f"# Hourglass Bench result\n\n![Score graph](score.svg)\n\nModel: {report['model'].replace(chr(10),' ')}\n\n**{h['weighted_points']:.2f} weighted points{star}**, {h['points']} correct. Status: **{h['state']}**.\n\nFixed difficulty weights: charts 1–10 → 1–2; games 1–5 → 1–2; math high school / undergraduate / graduate → 1 / 1.5 / 2. One award per question within 3,600 active seconds.\n\nBank fingerprint: `{report['bank_fingerprint']}`. Compare the same bank, order, repeat policy, model settings and hardware. Inference machine: {hardware['label']}. Model configuration disclosure has not been supplied.\n\n[Aggregate data](report.json)\n\nHardware source: {hardware.get('source','unknown')}.\n"
+    if h['scoring_policy']==scoring_policy.NET:readme+=f"\nNet scoring: +1–2 for a correct question, −1 for an incorrect final submission, zero for abstention, unsupported vision, timeout or no final submission. Gross: {h['gross_points']}; penalties: {h['penalty_points']}; abstained: {h['abstained_questions']}. A correct repeat supersedes an earlier incorrect answer; penalties never accumulate for repeated wrong answers to one question.\n"
     readme+='\n### Recorded inference hardware\n\n```json\n'+json.dumps(hardware,indent=2)+'\n```\n'
     readme+=f"\nUnsupported vision questions within the scoring window: **{report['unsupported_vision_questions']}**. These earn zero points; no extra penalty is applied. Text and vision subtotals are reported separately.\n"
     readme+='\n## Experiment configuration\n\n'+('\n'.join('- '+k.replace('_',' ')+': '+html.escape(v) for k,v in report['experiment'].items()) or 'Configuration not recorded.')+'\n\nThese evaluations use private questions. Only aggregate results and explicitly recorded public configuration labels are published.\n'
@@ -131,13 +135,13 @@ def quadrants(reports, scope='same'):
 
 def ranking(reports, scope='same'):
     ranked=sorted(compatible_reports(reports,scope),key=lambda r:(-r['weighted_points'],r['model'],hardware_label(r),r.get('machine_key','')))
-    width=1100;height=180+len(ranked)*86;maximum=max(1,max(r['weighted_points'] for r in ranked))
+    width=1100;height=180+len(ranked)*86;maximum=max(1,max(abs(r['weighted_points']) for r in ranked))
     out=[f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}"><rect width="{width}" height="{height}" fill="#101722"/><g font-family="sans-serif" fill="#eaf0fa">',
          '<text x="36" y="42" font-size="26">Hourglass Bench · score ranking</text>',
          f'<text x="36" y="70" font-size="14">{html.escape("All hardware" if scope=="all" else hardware_label(reports[0]))} · weighted points · higher is better</text>',
          '<text x="36" y="95" font-size="12" fill="#aebdd0">Selected run + latest matching run per model and machine. Partial and running scores are not extrapolated.</text>']
     for i,r in enumerate(ranked):
         y=132+i*86;label=html.escape(r['model']);hardware=html.escape(hardware_label(r));value=r['weighted_points'];star='*' if r.get('clock_adjustment_seconds') else ''
-        out.append(f'<text x="36" y="{y}" font-size="14">{i+1}. {label}</text><text x="36" y="{y+20}" font-size="12" fill="#aebdd0">{hardware}</text><rect x="36" y="{y+30}" width="{value/maximum*830:.2f}" height="20" rx="3" fill="#74e5c4"><title>{label} · {hardware} · {value:.2f} points · {html.escape(r["state"])}</title></rect><text x="{48+value/maximum*830:.2f}" y="{y+45}" font-size="13">{value:.2f}{star} · {html.escape(r["state"])}</text>')
+        out.append(f'<text x="36" y="{y}" font-size="14">{i+1}. {label}</text><text x="36" y="{y+20}" font-size="12" fill="#aebdd0">{hardware}</text><rect x="{451+min(0,value)/maximum*415:.2f}" y="{y+30}" width="{abs(value)/maximum*415:.2f}" height="20" rx="3" fill="#74e5c4"><title>{label} · {hardware} · {value:.2f} points · {html.escape(r["state"])}</title></rect><text x="{463+value/maximum*415:.2f}" y="{y+45}" font-size="13">{value:.2f}{star} · {html.escape(r["state"])}</text>')
     out.append(f'<text x="36" y="{height-18}" font-size="11" fill="#aebdd0">Same bank, order and scoring rules. Hardware and model settings affect results. *Clock adjustment, when marked.</text></g></svg>')
     return {'ranking.svg':''.join(out)}

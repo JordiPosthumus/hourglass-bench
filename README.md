@@ -93,3 +93,11 @@ First-party code is MIT licensed. Vendored dependencies retain their respective 
 ## Maintaining an installation
 
 See [the model, hardware and release maintenance guide](docs/maintenance.md) before changing models, updating GitHub, or handing work to another agent.
+
+## Net scoring and Run editor
+
+New UI runs use `net-hour-v1`: +1–2 by difficulty for a correct question, −1 for a submitted incorrect final answer, and zero for explicit abstention, unsupported vision, timeout or no final submission. Tool errors have no direct penalty. Each question is counted once; any correct repeat supersedes a previous wrong submission, otherwise a question with an incorrect submission loses one point. Gross points, incorrect counts and abstentions remain visible. Models receive these rules and can submit `{"abstain": true}` through their final-answer tool. Net scores and signed step AUC can be negative. Historical runs retain their original scoring policy and comparison cohort.
+
+Open **Run editor** beside the saved-run selector to record model/revision, quantization, server/version or PR, hardware, sampling settings, limits, reasoning, concurrency, cache details and notes. Each field offers persistent saved choices and accepts a new value. Saving creates an immutable revision and retains older choices. You can restore an earlier revision's values and save them as a new revision. Descriptions are user-reported; captured execution records are shown separately. This editor records details and does not change endpoint configuration. Run records and reusable choices stay local.
+
+The console defaults to `http://127.0.0.1:4534`. Score preview and publication review are served on the same site under `/scores/`; the launcher no longer starts a second listener. An explicit port environment variable still overrides the default.

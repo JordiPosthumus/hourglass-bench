@@ -24,19 +24,23 @@ function hourScore(job, rows, expected=[], now=Date.now()/1000){
     if(r.status==='error')errors++;else if(r.status==='completed')within.push(r);
   }
   const available=timingKnown&&!unknown,correct=new Set(within.filter(r=>r.solved).map(r=>r.task)),completed=new Set(within.map(r=>r.task));
+  const netPolicy=job.scoring_policy==='net-hour-v1',neutral=['unsupported_vision','abstained','question_timeout','not_attempted','turn_limit','stopped','unfinished','wrong_streak_limit','five_wrong_in_row'];
+  const wrong=new Set(within.filter(r=>!r.solved&&(!netPolicy||!neutral.includes(r.score_reason)&&!neutral.includes(r.termination))).map(r=>r.task).filter(t=>!correct.has(t)));
+  const countReason=reason=>new Set(within.filter(r=>r.score_reason===reason).map(r=>r.task).filter(t=>!correct.has(t)&&!wrong.has(t))).size;
   const weights=new Map(expected.map(t=>[t.task,t.weight??questionWeight(t)]));
   const weighted=ids=>available?Math.round([...ids].reduce((n,id)=>n+(weights.get(id)??1),0)*1e6)/1e6:null;
   const lanes={};
   for(const lane of ['text','vision']){
     const rs=within.filter(r=>(vision.has(r.task)?vision.get(r.task):r.kind==='chart-vqa'||['chart','charts'].includes(r.section))===(lane==='vision'));
     const correctLane=new Set(rs.filter(r=>r.solved).map(r=>r.task));
-    lanes[lane]={points:available?correctLane.size:null,weighted_points:weighted(correctLane),completed_questions:new Set(rs.map(r=>r.task)).size};
+    lanes[lane]={points:available?correctLane.size:null,weighted_points:available?Math.round((weighted(correctLane)-(netPolicy?[...new Set(rs.map(r=>r.task))].filter(t=>wrong.has(t)).length:0))*1e6)/1e6:null,completed_questions:new Set(rs.map(r=>r.task)).size};
   }
   const final=available&&(elapsed>=3600||tids.size>0&&completed.size===tids.size);
   const state=!available?'unavailable':final?'final':job.state==='running'?'in_progress':!started?'not_started':'partial';
   return {version:'hour-v1',window_s:3600,points:available?correct.size:null,correct_tasks:available?[...correct].sort():[],breakdown:lanes,
-    weighted_version:'weighted-hour-v1',weighted_points:weighted(correct),
-    completed_questions:completed.size,incorrect_questions:[...completed].filter(t=>!correct.has(t)).length,total_questions:tids.size,
+    weighted_version:'weighted-hour-v1',weighted_points:available?Math.round((weighted(correct)-(netPolicy?wrong.size:0))*1e6)/1e6:null,
+    scoring_policy:job.scoring_policy??'weighted-hour-v1',gross_points:weighted(correct),net_points:available&&netPolicy?Math.round((weighted(correct)-wrong.size)*1e6)/1e6:null,penalty_points:netPolicy?wrong.size:0,abstained_questions:countReason('abstained'),unsupported_questions:countReason('unsupported_vision'),
+    completed_questions:completed.size,incorrect_questions:wrong.size,total_questions:tids.size,
     after_deadline_questions:after.size,errors,elapsed_s:elapsed,remaining_s:Math.max(0,3600-elapsed),state,
     timing_note:available?'Recorded completion timestamps on active wall clock, including thinking, tools and retries.':'Missing completion timestamps or historical pause intervals; hourly score withheld.'};
 }

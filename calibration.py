@@ -8,6 +8,7 @@ import threading
 import uuid
 import run_tracking
 import score_weights
+import scoring_policy
 import hardware_records
 from collections import Counter
 
@@ -51,6 +52,9 @@ def evaluation_manifest(root, job, version, config, legacy=False):
                 'config_hash': digest(config), 'legacy_time_match': legacy}
     manifest['hardware']=hardware_records.capture(root,config)
     manifest['scope'] = digest({'version': version, 'expected': expected, 'order':job['tasks'], 'stop_after_wrong':job.get('stop_after_wrong')})
+    if 'scoring_policy' in job:
+        manifest['scoring_policy']=job['scoring_policy']
+        manifest['scope']=digest({'original_scope':manifest['scope'],'scoring_policy':job['scoring_policy']})
     with LOCK:
         write(root / 'evaluations' / (job['id'] + '.json'), manifest)
     return manifest
@@ -82,6 +86,8 @@ def evaluations(root, rows):
         expected = Counter({t['task']: t['repeat'] for t in m['expected']})
         actual = Counter(r.get('task') for r in attempts)
         reasons = []
+        if m.get('scoring_policy')==scoring_policy.NET and any(not scoring_policy.final_answer(r) for r in attempts):
+            reasons.append('Neutral outcomes are excluded from answer-accuracy calibration.')
         if actual != expected:
             reasons.append(f"Incomplete or duplicate attempts: {len(attempts)}/{sum(expected.values())} recorded.")
         if any(r.get('status') != 'completed' for r in attempts):

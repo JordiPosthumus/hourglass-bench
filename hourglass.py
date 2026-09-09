@@ -13,6 +13,7 @@ Commands:
   hourglass.py leaderboard                        per task×model aggregates
   hourglass.py frontier                           speed-vs-accuracy Pareto frontier on your hardware
 """
+import scoring_policy
 import argparse, base64, datetime as dt, hashlib, json, os, re, shlex, shutil, subprocess, sys, tempfile, time
 import urllib.request
 import urllib.parse
@@ -26,7 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 TASKS, RESULTS, SANDBOX = ROOT / "tasks", ROOT / "results", ROOT / "sandboxes"
 REAL_HOME = str(Path.home())
-BENCHMARK_VERSION = "2.1.0"
+BENCHMARK_VERSION = "2.4.0"
 
 def requires_vision(task):
     return task.get("kind") == "chart-vqa" or bool(task.get("image") or task.get("assets"))
@@ -640,6 +641,9 @@ def cmd_run(args):
             solved, vout, tampered = False, f"Not attempted: stopped after {stop_limit} consecutive incorrect questions; scored zero.", []
         elif unsupported_vision:
             solved, vout, tampered = False, "Vision unsupported: scored zero. " + ("Detected from endpoint rejection." if metrics.get("vision_detection") else "No model request needed."), []
+        elif os.environ.get('HOURGLASS_SCORING_POLICY') == scoring_policy.NET and parsed.get('abstain') is True:
+            solved, vout, tampered = False, 'Explicit abstention: zero points.', []
+            metrics.update(termination='abstained',score_reason='abstained')
         elif chart:
             solved, vout, tampered = score_chart(task, parsed, disp_map)
         elif task.get("kind") == "mcq":
@@ -654,7 +658,7 @@ def cmd_run(args):
         (rdir / "patch.diff").write_text(patch)
         rec = {"task": args.task, "model": args.model, "run": run, "run_id": run_id,
                "evaluation_id": os.environ.get("HOURGLASS_EVALUATION_ID"), "stop_after_wrong": stop_limit, "model_config_hash": calibration.digest(mcfg),
-               "benchmark_version": BENCHMARK_VERSION, "supports_vision": mcfg.get("supports_vision"),
+               "benchmark_version": BENCHMARK_VERSION, "scoring_policy": os.environ.get('HOURGLASS_SCORING_POLICY',scoring_policy.LEGACY), "supports_vision": mcfg.get("supports_vision"),
                "artifact_dir": str(rdir.relative_to(ROOT)), "tier": task.get("tier", 1),
                "status": "error" if metrics.get("error") else "completed",
                "section": task.get("section"), "family": task.get("family"), "mode": task.get("mode"),

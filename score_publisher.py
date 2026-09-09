@@ -17,7 +17,7 @@ import results_history
 PAGE='''<!doctype html><meta charset="utf-8"><title>Hourglass score preview</title><style>body{background:#101722;color:#eaf0fa;font:16px system-ui;max-width:1400px;margin:32px auto;padding:0 28px}input,button,select{font:inherit;padding:10px;border-radius:7px;border:1px solid #627080}input,select{background:#172231;color:#eaf0fa;min-width:0}button{cursor:pointer}button:disabled{opacity:.5}img{display:block;width:100%;height:auto;border:1px solid #2c394a;border-radius:14px;margin:20px 0}pre{white-space:pre-wrap}a{color:#74e5c4}fieldset{border:1px solid #39495b;border-radius:12px;padding:20px;margin:24px 0}.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}label{display:flex;flex-direction:column;gap:6px;font-size:14px}.actions{display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-top:20px}.help{font-size:13px;color:#b7c5d5}h2{font-size:20px}</style>
 <h1>Record & publish score</h1><p id="summary"></p>
 <fieldset id="hardware"><legend>Hardware for this run</legend><label>Hardware<input id="label" maxlength="160" placeholder="Spark 2 · NVIDIA GB10 · 128 GB"></label><div class="actions"><button id="saveHardware" disabled>Save hardware</button><span id="hardwareStatus" class="help"></span></div></fieldset>
-<fieldset><legend>Public experiment labels</legend><p class="help">Use the same model family across revisions. These fields will be published; record the revision, quantization, engine, harness and parameters you actually used.</p><div class="fields"><label>Model Family<input id="exp_model_family" maxlength="500"></label><label>Model Revision<input id="exp_model_revision" maxlength="500"></label><label>Configuration<input id="exp_configuration" maxlength="500"></label><label>Quantization<input id="exp_quantization" maxlength="500"></label><label>Inference Engine<input id="exp_inference_engine" maxlength="500"></label><label>Harness Revision<input id="exp_harness_revision" maxlength="500"></label><label>Parameters<input id="exp_parameters" maxlength="500"></label></div><div class="actions"><button id="saveExperiment">Save experiment labels</button></div></fieldset><label>Compare<select id="scope"><option value="same">Same hardware</option><option value="all">All hardware</option></select></label><p class="help">Matching question bank and scoring rules. Selected run plus the latest matching run for each model and machine.</p><h2>Score ranking</h2><img id="ranking" alt="Models ranked by weighted score with hardware labels"><h2>Weighted score over time</h2><p class="help">Each step marks points earned at completion. AUC is calculated from this exact step graph.</p><img id="graph" alt="Weighted score over active time">
+<fieldset><legend>Public experiment labels</legend><p class="help">Use the same model family across revisions. These fields will be published; record the revision, quantization, engine, harness and parameters you actually used.</p><div class="fields"><label>Model Family<input id="exp_model_family" maxlength="500"></label><label>Model Revision<input id="exp_model_revision" maxlength="500"></label><label>Configuration<input id="exp_configuration" maxlength="500"></label><label>Quantization<input id="exp_quantization" maxlength="500"></label><label>Inference Engine<input id="exp_inference_engine" maxlength="500"></label><label>Harness Revision<input id="exp_harness_revision" maxlength="500"></label><label>Parameters<input id="exp_parameters" maxlength="500"></label></div><div class="actions"><button id="saveExperiment">Save experiment labels</button></div></fieldset><label>Compare<select id="scope"><option value="same">Same hardware</option><option value="all">All hardware</option></select></label><p class="help">Matching question bank and scoring rules. Selected run plus the latest matching run for each model and machine.</p><h2>Score ranking</h2><img id="ranking" alt="Models ranked by weighted score with hardware labels"><h2>Weighted score over time</h2><p class="help">Each step marks the score after a final submission. AUC is calculated from this exact step graph.</p><img id="graph" alt="Weighted score over active time">
 <h2>Accuracy × token efficiency × speed</h2><p class="help">Up is more accurate. Right uses fewer output tokens. Larger bubbles mean more scored answers per active minute.</p><img id="quadrants" alt="Accuracy token efficiency and speed quadrant chart">
 <p id="files"></p><p class="help">Review these aggregate files. Publishing also updates the repository Results index and model-history charts from published snapshots. Questions, answers and traces stay private. Hardware edits require a refreshed preview.</p>
 <div class="actions"><label>GitHub repository<input id="repo" placeholder="owner/repository"></label><button id="publish" disabled>Publish these files to GitHub</button></div><p id="status" role="status"></p>
@@ -86,7 +86,7 @@ def publish(repo,token,files):
     return f'https://github.com/{repo}/tree/{commit["sha"]}/{folder}'
 
 
-def server(root,port,source_port,repo=''):
+def handler(root,port,source_port,repo='',prefix=''):
     previews={};lock=threading.Lock()
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,*args):pass
@@ -95,8 +95,9 @@ def server(root,port,source_port,repo=''):
         def do_GET(self):
             try:
                 if self.headers.get('Host')!=f'127.0.0.1:{port}':raise ValueError('Invalid host.')
+                if prefix:self.path=self.path[len(prefix):] or '/'
                 u=urllib.parse.urlparse(self.path)
-                if u.path=='/':self.send(PAGE,'text/html; charset=utf-8');return
+                if u.path=='/':self.send(PAGE.replace("'/api/","'"+prefix+"/api/").replace("'/file/","'"+prefix+"/file/").replace('href="/file/','href="'+prefix+'/file/'),'text/html; charset=utf-8');return
                 if u.path in ('/api/preview','/chart.svg'):
                     query=urllib.parse.parse_qs(u.query)
                     scope=query.get('scope',['same'])[0]
@@ -147,6 +148,7 @@ def server(root,port,source_port,repo=''):
             try:
                 origin=f'http://127.0.0.1:{port}'
                 if self.headers.get('Host')!=f'127.0.0.1:{port}' or self.headers.get('Origin')!=origin:raise ValueError('Open the local preview page to publish.')
+                if prefix:self.path=self.path[len(prefix):] or '/'
                 if self.path not in ('/api/publish','/api/hardware','/api/experiment','/api/details'):raise ValueError('Unknown action.')
                 size=int(self.headers.get('Content-Length',0))
                 if not 0<size<=4096:raise ValueError('Invalid request size.')
@@ -175,7 +177,10 @@ def server(root,port,source_port,repo=''):
                     if not url:url=publish(data['repo'],data['token'],preview['files']);preview['published']=url
                 self.send(json.dumps({'url':url}))
             except Exception as e:self.send(json.dumps({'error':str(e)}),status=400)
-    return ThreadingHTTPServer(('127.0.0.1',port),Handler)
+    return Handler
+
+def server(root,port,source_port,repo=''):
+    return ThreadingHTTPServer(('127.0.0.1',port),handler(root,port,source_port,repo))
 
 
 def start(root,source_port,repo=''):

@@ -43,9 +43,11 @@ def measured_points(curve):
 
 def progress_chart(reports,scope='same'):
     width=1100;height=620+len(reports)*57;left,right,top,bottom=82,1030,132,446
-    maximum=max(1,*[r['weighted_points'] for r in reports]);unit=10**math.floor(math.log10(maximum/4));tick=next(n*unit for n in (1,2,2.5,5,10) if n*unit>=maximum/4);ymax=4*tick
+    values=[0,1]+[p['weighted'] for r in reports for p in r['curve']]+[r['weighted_points'] for r in reports]
+    ymin,ymax=min(values),max(values);span=ymax-ymin
+    ymin-=span*.04 if ymin<0 else 0;ymax+=span*.04
     x=lambda s:left+min(3600,s)/3600*(right-left)
-    y=lambda v:bottom-v/ymax*(bottom-top)
+    y=lambda v:bottom-(v-ymin)/(ymax-ymin)*(bottom-top)
     hardware='All hardware' if scope=='all' else reports[0].get('hardware',{}).get('label','Hardware not recorded')
     esc=html.escape
     out=[f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" style="max-width:100%;height:auto"><rect width="{width}" height="{height}" rx="20" fill="#f5f7f5"/><g font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif" fill="#233f35">',
@@ -53,8 +55,9 @@ def progress_chart(reports,scope='same'):
          f'<text x="40" y="101" font-size="13" fill="#6f8077">{esc(hardware[:130])} · weighted points</text>',
          f'<rect x="{left}" y="{top}" width="{right-left}" height="{bottom-top}" rx="8" fill="white"/>']
     for i in range(5):
-        value=ymax*i/4;yy=y(value)
+        value=ymin+(ymax-ymin)*i/4;yy=y(value)
         out.append(f'<path d="M{left} {yy}H{right}" stroke="#e4ebe6"/><text x="{left-14}" y="{yy+4}" text-anchor="end" font-size="12" fill="#78897f">{value:.1f}</text>')
+    out.append(f'<path d="M{left} {y(0)}H{right}" stroke="#71827a" stroke-width="1.5"><title>Zero points</title></path>')
     for minute in range(0,61,10):
         xx=x(minute*60);out.append(f'<text x="{xx}" y="{bottom+27}" text-anchor="middle" font-size="12" fill="#78897f">{minute}</text>')
     out.append(f'<text x="{(left+right)/2}" y="{bottom+52}" text-anchor="middle" font-size="12" fill="#78897f">ACTIVE MINUTES</text>')
@@ -67,6 +70,6 @@ def progress_chart(reports,scope='same'):
         yy=547+i*57;star='*' if r.get('clock_adjustment_seconds') else '';a=r.get('auc',{}).get('point_minutes') if r.get('auc',{}).get('state')=='final' else None;auc_label=f' · AUC {a:.2f} point-min' if a is not None else ' · AUC pending' if r.get('auc') else ''
         name=r['model'];short=name if len(name)<=102 else name[:99]+'…'
         out.append(f'<path d="M40 {yy-5}H66" stroke="{color}" stroke-width="3"{dash}/><text x="78" y="{yy}" font-size="14" font-weight="600"><title>{esc(name)}</title>{esc(short)}</text><text x="78" y="{yy+21}" font-size="12" fill="#71827a">{r["weighted_points"]:.2f}{star} points · {r.get("raw_correct",0)} correct · {esc(r.get("state","unknown"))}{auc_label}</text>')
-    out.append(f'<text x="40" y="{height-27}" font-size="11" fill="#71827a">Each step marks points earned at completion. AUC is the area under this exact step graph.</text>')
+    out.append(f'<text x="40" y="{height-27}" font-size="11" fill="#71827a">Each step marks the score after a final submission. AUC is the area under this exact step graph.</text>')
     if any(r.get('clock_adjustment_seconds') for r in reports):out.append(f'<text x="40" y="{height-10}" font-size="10" fill="#71827a">*Includes a disclosed clock adjustment.</text>')
     out.append('</g></svg>');return ''.join(out)

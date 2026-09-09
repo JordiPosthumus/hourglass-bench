@@ -44,18 +44,18 @@ def evolution(reports):
         groups.setdefault((cohort(r),r.get('state')=='final'),[]).append(r)
     height=max(180,260*len(groups));out=[f'<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="{height}" viewBox="0 0 1000 {height}"><rect width="1000" height="{height}" fill="white"/><g font-family="sans-serif" fill="#263e32">']
     for i,((key,final),rs) in enumerate(groups.items()):
-        top=i*260;maximum=max(1,*[r['weighted_points'] for r in rs]);points=[]
+        top=i*260;minimum=min(0,*[r['weighted_points'] for r in rs]);maximum=max(1,*[r['weighted_points'] for r in rs]);points=[]
         heading=f"{family(rs[0])} · {rs[0].get('hardware',{}).get('label','Unknown hardware')} · {'Final' if final else 'Partial snapshots (not directly comparable)'} · protocol {hashlib.sha256(str(key).encode()).hexdigest()[:8]}"
         out.append(f'<text x="30" y="{top+25}" font-size="14">{html.escape(heading[:135])}</text>')
         for n,r in enumerate(rs):
-            x=65+n*860/max(1,len(rs)-1);y=top+170-r['weighted_points']/maximum*110;points.append(f'{x},{y}')
+            x=65+n*860/max(1,len(rs)-1);y=top+170-(r['weighted_points']-minimum)/(maximum-minimum)*110;points.append(f'{x},{y}')
             title=label(r)+f" · {r['weighted_points']:.2f} points · {r.get('active_seconds',0):.0f}s"
             out.append(f'<circle cx="{x}" cy="{y}" r="5" fill="#217b55"><title>{html.escape(title)}</title></circle><text x="{x}" y="{y-12}" text-anchor="middle" font-size="12">{r["weighted_points"]:.2f}</text><text x="{x}" y="{top+200}" text-anchor="middle" font-size="10">{html.escape((r.get("run_date") or "Unknown")[:10])}</text><text x="{x}" y="{top+219}" text-anchor="middle" font-size="10">#{numbers[id(r)]}</text>')
         if final:out.append(f'<polyline points="{" ".join(points)}" fill="none" stroke="#217b55" stroke-width="1"/>')
     if not groups:out.append('<text x="30" y="70">No published runs yet.</text>')
     out.append('</g></svg>');return ''.join(out)
 
-PUBLIC_KEYS=('format','model','run_key','run_date','experiment','hardware','machine_key','bank_fingerprint','scoring','timing_policy','benchmark_version','question_timeout_policy','execution','state','weighted_points','raw_correct','active_seconds','efficiency','clock_adjustment_seconds','curve','breakdown','unsupported_vision_questions','auc')
+PUBLIC_KEYS=('format','model','run_key','run_date','experiment','hardware','machine_key','bank_fingerprint','scoring','timing_policy','benchmark_version','question_timeout_policy','execution','state','weighted_points','raw_correct','active_seconds','efficiency','clock_adjustment_seconds','curve','breakdown','unsupported_vision_questions','auc','gross_points','net_points','incorrect_questions','abstained_questions','penalty_points')
 
 def catalog_files(existing,report,token):
     entry={k:report[k] for k in PUBLIC_KEYS if k in report};entry['report_folder']=token

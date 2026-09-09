@@ -3,6 +3,7 @@ import datetime as dt
 import json
 import time
 import score_weights
+import scoring_policy
 
 VERSION = 'hour-v1'
 WINDOW_S = 3600
@@ -47,20 +48,28 @@ def score(job, rows, expected=(), now=None):
     available = timing_known and not unknown
     correct = {r['task'] for r in within if r.get('solved')}
     completed = {r['task'] for r in within}
+    net_policy = job.get('scoring_policy') == scoring_policy.NET
+    wrong = {r['task'] for r in within if scoring_policy.incorrect(r)} - correct if net_policy else completed - correct
+    abstained = {r['task'] for r in within if r.get('score_reason') == 'abstained'} - correct - wrong
+    unsupported = {r['task'] for r in within if r.get('score_reason') == 'unsupported_vision'} - correct - wrong
     weights={t['task']:t.get('weight',score_weights.weight(t)) for t in expected}
     weighted=lambda ids:round(sum(weights.get(tid,1.0) for tid in ids),6) if available else None
+    gross = weighted(correct)
+    net = round(gross-len(wrong),6) if available else None
     lanes = {}
     for lane in ('text', 'vision'):
         rs = [r for r in within if vision.get(r['task'], r.get('kind') == 'chart-vqa' or r.get('section') in ('chart', 'charts')) == (lane == 'vision')]
         lanes[lane] = {'points': len({r['task'] for r in rs if r.get('solved')}) if available else None,
-                       'weighted_points':weighted({r['task'] for r in rs if r.get('solved')}),
+                       'weighted_points':(round(weighted({r['task'] for r in rs if r.get('solved')})-len(wrong & {r['task'] for r in rs}),6) if available else None) if net_policy else weighted({r['task'] for r in rs if r.get('solved')}),
                        'completed_questions': len({r['task'] for r in rs})}
     final = available and (elapsed >= WINDOW_S or bool(tids) and len(completed) == len(tids))
     state = 'unavailable' if not available else 'final' if final else 'in_progress' if job.get('state') == 'running' else 'not_started' if not started else 'partial'
     return {'version': VERSION, 'window_s': WINDOW_S, 'points': len(correct) if available else None,
-            'weighted_version':score_weights.VERSION,'weighted_points':weighted(correct),
+            'weighted_version':score_weights.VERSION,'weighted_points':net if net_policy else gross,
+            'scoring_policy':job.get('scoring_policy',scoring_policy.LEGACY),'gross_points':gross,'net_points':net if net_policy else None,
+            'penalty_points':len(wrong) if net_policy else 0,'abstained_questions':len(abstained),'unsupported_questions':len(unsupported),
             'correct_tasks': sorted(correct) if available else [], 'breakdown': lanes,
-            'completed_questions': len(completed), 'incorrect_questions': len(completed - correct),
+            'completed_questions': len(completed), 'incorrect_questions': len(wrong),
             'total_questions': len(tids), 'after_deadline_questions': len(after), 'errors': errors,
             'elapsed_s': elapsed, 'remaining_s': max(0, WINDOW_S - elapsed), 'state': state,
             'timing_note': 'Recorded completion timestamps on active wall clock, including thinking, tools and retries.' if available else 'Missing completion timestamps or historical pause intervals; hourly score withheld.'}

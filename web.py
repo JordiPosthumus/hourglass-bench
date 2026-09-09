@@ -10,19 +10,23 @@ import hourglass
 import calibration
 import run_tracking
 import settings_records
+import run_editor
 import endpoint_hardware
 import hour_score
+import scoring_policy
 import hour_deadline
 import attempt_annotations
 import score_weights
+import score_publisher
 
 ROOT = Path(__file__).resolve().parent
 TASKS, RESULTS, LOGS = ROOT/'tasks', ROOT/'results', ROOT/'logs'
-PORT = int(os.environ.get('HOURGLASS_PORT', '8788'))
+PORT = int(os.environ.get('HOURGLASS_PORT', '4534'))
 queue, running, done = deque(), [], deque(maxlen=100)
 condition = threading.Condition()
 worker_stop = False
 worker_thread = None
+score_handler = None
 
 def read_json(path, default=None):
     try: return json.loads(Path(path).read_text())
@@ -129,7 +133,7 @@ def resume_plan(job, manifest, rows):
             'version_warning':f"This run began on v{manifest['benchmark_version']}; continuing on v{hourglass.BENCHMARK_VERSION} mixes versions and is excluded from calibration." if mixed else None}
 
 def public_job(job, rows=None):
-    result={k:job.get(k) for k in ('id','label','model','tasks','repeat','state','rc','created','started','ended','current_task','completed_tasks','total_tasks','error','stopped_after','resume_count','stop_after_wrong','stop_requested','stop_reason','active_intervals','hour_timing_unknown')}
+    result={k:job.get(k) for k in ('id','label','model','scoring_policy','tasks','repeat','state','rc','created','started','ended','current_task','completed_tasks','total_tasks','error','stopped_after','resume_count','stop_after_wrong','stop_requested','stop_reason','active_intervals','hour_timing_unknown')}
     if rows is not None:
         manifest=read_json(ROOT/'evaluations'/(job['id']+'.json'))
         if manifest:
@@ -141,6 +145,7 @@ def public_job(job, rows=None):
             result['scope']=manifest.get('scope')
             result['resume']=resume_plan(job,manifest,rows)
             result['user_settings']=settings_records.records(ROOT,job['id'])
+            result['run_details']=run_editor.snapshot(ROOT,job['id'])
     return result
 
 def state():
@@ -158,7 +163,7 @@ def state():
             'model_errors':hourglass.validate_models(doc),'results':rows,
             'endpoint_hardware':endpoint_hardware.snapshot(ROOT,doc.get('models',[])),
             'calibration_available':True,'benchmark_version':hourglass.BENCHMARK_VERSION,'harness':{'name':'pi','version':'0.85.1','temperature_policy':'server_default'},
-            'score_policy':{'version':hour_score.VERSION,'window_s':hour_score.WINDOW_S,'metric':'distinct_correct_within_active_hour'},
+            'score_policy':{'version':hour_score.VERSION,'window_s':hour_score.WINDOW_S,'metric':'net_weighted_points_within_active_hour','scoring_policy':scoring_policy.NET},
             'execution_policy':{'timeouts':False,'stop_after_wrong':run_tracking.STOP_AFTER_WRONG,'order':ORDER_POLICY},
             'provenance':read_json(ROOT/'provenance.json',{}),'jobs':jobs,
             'sandbox_available':shutil.which('sandbox-exec') is not None}
@@ -311,7 +316,7 @@ def worker():
                             if job.get('stop_requested'):
                                 job.update(state='stopped',error=None);break
                             proc=subprocess.Popen(cmd,cwd=ROOT,stdout=log,stderr=subprocess.STDOUT,start_new_session=True,
-                                                  env=dict(os.environ,NODE_ID=os.environ.get('NODE_ID','unknown'),HOURGLASS_EVALUATION_ID=job['id'],HOURGLASS_SKIP_REASON='wrong_streak_limit' if skip else '',HOURGLASS_STOP_AFTER_WRONG=str(stop_limit)))
+                                                  env=dict(os.environ,NODE_ID=os.environ.get('NODE_ID','unknown'),HOURGLASS_EVALUATION_ID=job['id'],HOURGLASS_SCORING_POLICY=job.get('scoring_policy',scoring_policy.LEGACY),HOURGLASS_SKIP_REASON='wrong_streak_limit' if skip else '',HOURGLASS_STOP_AFTER_WRONG=str(stop_limit)))
                             job['_process']=proc
                         rc=proc.wait()
                         with condition:job.pop('_process',None)
@@ -328,6 +333,7 @@ def worker():
                     with condition:job['completed_tasks']+=1
                     if not skip:
                         attempts=[r for r in run_tracking.effective_attempts(raw) if r.get('task')==tid]
+                        if job.get('scoring_policy')==scoring_policy.NET and not any(scoring_policy.final_answer(r) for r in attempts):continue
                         wrong_streak=0 if any(r.get('solved') for r in attempts) else wrong_streak+1
                         if wrong_streak>=stop_limit:
                             with condition:job['stopped_after']=tid
@@ -374,7 +380,7 @@ def enqueue(body):
     if bad:raise ValueError('These tests need repair before running: '+', '.join(bad))
     if repeat is not None and (type(repeat) is not int or repeat<1):raise ValueError('Repeats must be a positive whole number, or use task defaults.')
     tids=ordered_tasks(list(catalog.values()),tids)
-    job={'id':uuid.uuid4().hex,'label':f'{model} · {len(tids)} tests','model':model,'tasks':tids,
+    job={'scoring_policy':scoring_policy.NET,'id':uuid.uuid4().hex,'label':f'{model} · {len(tids)} tests','model':model,'tasks':tids,
          'repeat':repeat,'stop_after_wrong':run_tracking.STOP_AFTER_WRONG,'state':'pending','created':time.time(),'completed_tasks':0,'total_tasks':len(tids)}
     config=next(m for m in model_document()['models'] if m['name']==model)
     with condition:
@@ -404,8 +410,23 @@ class H(BaseHTTPRequestHandler):
         self.send_header('Cache-Control','no-store');self.send_header('X-Content-Type-Options','nosniff');self.end_headers();self.wfile.write(data)
     def _json(self,obj,status=200):self.send_bytes(json.dumps(obj).encode(),status)
     def _text(self,text,status=200):self.send_bytes(text.encode(),status,'text/plain; charset=utf-8')
+    def score_route(self,method):
+        global score_handler
+        with condition:
+            if score_handler is None:score_handler=score_publisher.handler(ROOT,PORT,PORT,'JordiPosthumus/hourglass-bench',prefix='/scores')
+        getattr(score_handler,method)(self)
+    def send(self,data,kind='application/json',status=200):
+        self.send_bytes(data.encode(),status,kind)
     def do_GET(self):
+        if self.path=='/scores' or self.path.startswith('/scores/'):
+            self.score_route('do_GET');return
         u=urlparse(self.path);q=parse_qs(u.query)
+        if u.path=='/api/run-editor':
+            try:
+                jid=q.get('job',[''])[0];manifest=saved_manifest(jid)
+                self._json({**run_editor.catalog(ROOT),'history':run_editor.history(ROOT,jid),'captured':{k:manifest.get(k) for k in ('model','model_id','config_hash','hardware','benchmark_version','scoring_policy')}})
+            except ValueError as e:self._json({'error':str(e)},400)
+            return
         if u.path=='/api/state':self._json(state());return
         if u.path=='/api/calibration':self._json(calibration.report(ROOT,result_rows()));return
         if u.path=='/api/health':self._json({'app':'Hourglass Bench','version':2,'benchmark_version':hourglass.BENCHMARK_VERSION});return
@@ -437,6 +458,8 @@ class H(BaseHTTPRequestHandler):
         if not p.is_relative_to((ROOT/'ui').resolve()) or not p.is_file():self._json({'error':'Not found'},404);return
         self.send_bytes(p.read_bytes(),ctype=mimetypes.guess_type(p.name)[0] or 'application/octet-stream')
     def do_POST(self):
+        if self.path.startswith('/scores/'):
+            self.score_route('do_POST');return
         try:
             origin=self.headers.get('Origin')
             if origin and urlparse(origin).netloc!=self.headers.get('Host'):
@@ -452,6 +475,9 @@ class H(BaseHTTPRequestHandler):
                 scope=calibration.set_reference(ROOT,result_rows(),b);self._json({'ok':True,'scope':scope});return
             if route=='/api/calibration/remove':
                 calibration.remove_reference(ROOT,b);self._json({'ok':True});return
+            if route=='/api/run-editor':
+                with condition:record=run_editor.save(ROOT,saved_manifest(b.get('job')),b)
+                self._json({'ok':True,'record':record});return
             if route=='/api/run-settings':self._json({'ok':True,'record':record_settings(b)});return
             if route=='/api/stop':self._json(stop_job(b));return
             if route=='/api/clear-run':self._json(clear_job(b));return

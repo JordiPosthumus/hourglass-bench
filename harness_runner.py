@@ -1,4 +1,7 @@
 """Frozen Pi SDK adapter. Benchmark scoring remains outside the agent process."""
+import scoring_policy
+import score_weights
+import os
 import signal
 import re
 import base64, datetime, hashlib, json, mimetypes, pathlib, subprocess, tempfile, time, urllib.request
@@ -56,6 +59,7 @@ def run(task,cfg,workdir,sandboxed):
     elif mcq and task.get('options'):prompt+='\n\n'+hourglass.mcq_display(task)
     final='answer_question' if chart or mcq else 'submit'
     properties={'value':{'type':'number'}} if task.get('mode')=='numeric' else ({'answer':{'type':'string'}} if chart else {'option':{'type':'string'}}) if mcq or chart else {'summary':{'type':'string'}}
+    answer_schema, scoring_instructions = scoring_policy.submission(properties,score_weights.weight(task),os.environ.get('HOURGLASS_SCORING_POLICY')==scoring_policy.NET)
     images=[]
     for asset in ([task['image']] if chart else task.get('assets',[])):
         file=workdir/asset;mime=mimetypes.guess_type(str(file))[0] or 'image/png'
@@ -66,9 +70,9 @@ def run(task,cfg,workdir,sandboxed):
         provider={'baseUrl':cfg['base_url'],'api':'openai-completions','apiKey':'local','models':[{'id':cfg['model'],'name':cfg['model'],'reasoning':True,'input':['text','image'],'contextWindow':context,'maxTokens':cfg.get('max_tokens',1024),'cost':{'input':0,'output':0,'cacheRead':0,'cacheWrite':0}}]}
         (agent_dir/'models.json').write_text(json.dumps({'providers':{'benchmark':provider}}))
         payload={'cwd':str(workdir),'agentDir':private,'model':cfg,'prompt':prompt+'\n\nCall '+final+' when finished.','images':images,
-                 'instructions':'Work on exactly this benchmark question. Use the workspace tools as needed. Network access is unavailable. Finish by calling '+final+'.',
+                 'instructions':scoring_instructions+' Work on exactly this benchmark question. Use the workspace tools as needed. Network access is unavailable. Finish by calling '+final+'.',
                  'finalTool':final,'answerDescription':'Submit the final benchmark answer.',
-                 'answerSchema':{'type':'object','properties':properties,'required':list(properties),'additionalProperties':False},
+                 'answerSchema':answer_schema,
                  'sandboxProfile':hourglass.sandbox_profile(workdir) if sandboxed else None}
         request=agent_dir/'request.json';request.write_text(json.dumps(payload))
         result=None;error=None;requested=[];thinking={"pi_thinking_level":None,"source":"not captured","server_reasoning_default":metadata.get("model",{}).get("capabilities",{}).get("reasoning",{}).get("default"),"server_effective_reasoning":None,"thinking_content_observed":False}

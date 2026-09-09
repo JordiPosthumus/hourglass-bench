@@ -1,0 +1,65 @@
+"""Append-only, user-reported run details and persistent reusable choices."""
+import json
+import math
+import threading
+import time
+import uuid
+from pathlib import Path
+
+LOCK=threading.RLock()
+FIELDS={'run_name':'Run name','model_name':'Model name','model_revision':'Model revision / source','quantization':'Quantization','server_name':'Server name','server_version':'Server version / PR','hardware':'Hardware','temperature':'Temperature','top_p':'Top p','top_k':'Top k','min_p':'Min p','repetition_penalty':'Repetition penalty','seed':'Seed','context_limit':'Context limit','output_limit':'Output limit','reasoning':'Reasoning mode / budget','concurrency':'Concurrency','cache':'Cache / speculative decoding','notes':'Notes'}
+NUMBERS={'temperature':(0,None),'top_p':(0,1),'top_k':(0,None),'min_p':(0,1),'repetition_penalty':(0,None),'seed':(None,None),'context_limit':(1,None),'output_limit':(1,None),'concurrency':(1,None)}
+INTEGERS={'top_k','seed','context_limit','output_limit','concurrency'}
+
+def read_lines(path):
+    if not path.exists():return []
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+def append_line(path,value):
+    path.parent.mkdir(parents=True,exist_ok=True)
+    with path.open('a') as f:f.write(json.dumps(value,allow_nan=False)+'\n');f.flush()
+
+def clean(values):
+    if not isinstance(values,dict) or set(values)-set(FIELDS):raise ValueError('Unknown run detail.')
+    output={}
+    for key,value in values.items():
+        if value is None or value=='':continue
+        if key in NUMBERS:
+            low,high=NUMBERS[key]
+            if type(value) not in (int,float) or not math.isfinite(value) or low is not None and value<low or high is not None and value>high or key in INTEGERS and int(value)!=value:raise ValueError('Invalid '+FIELDS[key]+'.')
+        elif not isinstance(value,str) or len(value)>2000:raise ValueError('Text fields must contain at most 2000 characters.')
+        elif not value.strip():continue
+        else:value=value.strip()
+        output[key]=value
+    return output
+
+def history(root,jid):
+    if not isinstance(jid,str) or not jid.isalnum():raise ValueError('Invalid run ID.')
+    return read_lines(Path(root)/'evaluations'/(jid+'.details.jsonl'))
+
+def snapshot(root,jid):
+    records=history(root,jid)
+    return records[-1] if records else None
+
+def catalog(root):
+    return {'fields':FIELDS,'numeric':list(NUMBERS),'integer':list(INTEGERS),'choices':read_lines(Path(root)/'run-detail-choices.jsonl')}
+
+def save(root,manifest,body):
+    values=clean(body.get('values'));base=body.get('base_revision')
+    timing=body.get('applies_from')
+    if timing not in ('run_start','now'):raise ValueError('Choose when these details applied.')
+    if timing=='now' and manifest.get('state')!='running':raise ValueError('Only an active run can record a change effective now.')
+    note=body.get('reason','')
+    if not isinstance(note,str) or len(note)>2000:raise ValueError('Change note must be text of at most 2000 characters.')
+    with LOCK:
+        current=snapshot(root,manifest['id'])
+        if base!=(current or {}).get('id'):raise ValueError('This run was edited elsewhere. Reload before saving.')
+        record={'id':uuid.uuid4().hex,'evaluation_id':manifest['id'],'recorded_at':time.time(),'effective_at':manifest.get('started') if timing=='run_start' else time.time(),'applies_from':timing,'source':'user_reported','values':values,'reason':note.strip(),'previous_revision':base}
+        append_line(Path(root)/'evaluations'/(manifest['id']+'.details.jsonl'),record)
+        choices=catalog(root)['choices']
+        for key,value in values.items():
+            if key in ('run_name','notes'):continue
+            if not any(c['field']==key and c['value']==value for c in choices):
+                choice={'id':uuid.uuid4().hex,'field':key,'value':value,'created_at':record['recorded_at']}
+                append_line(Path(root)/'run-detail-choices.jsonl',choice);choices.append(choice)
+        return record

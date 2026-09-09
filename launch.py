@@ -13,8 +13,8 @@ def existing_bench(port):
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('--no-open',action='store_true');args=ap.parse_args()
     explicit='HOURGLASS_PORT' in os.environ
-    wanted=int(os.environ.get('HOURGLASS_PORT','8788'))
-    ports=[wanted] if explicit else [wanted]+[p for p in range(8790,8811) if p!=wanted]
+    wanted=int(os.environ.get('HOURGLASS_PORT','4534'))
+    ports=[wanted]
     for port in ports:
         url=f'http://127.0.0.1:{port}'
         if existing_bench(port):
@@ -26,8 +26,7 @@ def main():
             if explicit:raise SystemExit(f'Port {port} is occupied by another service. Choose HOURGLASS_PORT; existing service left running.')
             continue
         if port!=wanted:print(f'Port {wanted} is occupied; using {port}. Existing services left running.',flush=True)
-        web.PORT=port;web.start_worker();publisher_started=score_publisher.start(web.ROOT,port)
-        if not publisher_started:print(f'Score publisher port {port+20} is occupied; an existing helper may already be running.',flush=True)
+        web.PORT=port;web.start_worker()
         print(f'Hourglass Bench → {url}',flush=True)
         if not args.no_open:threading.Thread(target=lambda:webbrowser.open(url),daemon=True).start()
         try:server.serve_forever()
