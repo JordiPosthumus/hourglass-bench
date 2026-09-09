@@ -17,8 +17,8 @@ function renderQuestionContextRows(){
   const selected=questionContextHover??questionContextTime;
   const opened=new Set([...body.querySelectorAll('details[open]')].map(x=>x.dataset.model));
   body.innerHTML=questionContextData.models.map(model=>{
-    const point=questionAt(model,selected),longest=longestQuestion(model),name=model.display_name||model.model;
-    return `<tr><td><details data-model="${esc(model.id)}" ${opened.has(model.id)?'open':''}><summary><span class="model-line" style="--model-color:${esc(model.color)}"></span><span class="compact-model" title="${esc(name)}">${esc(name)}</span>${model.current?'<span class="current-dot" title="Current run">LIVE</span>':''}</summary><div class="model-disclosure">${esc(name)}${name!==model.model?'<br>'+esc(model.model):''}<br>${esc(model.hardware)}<br>${esc(model.rules)}<br>${Number(model.points).toFixed(2)} points</div></details></td><td><span class="context-task">${esc(point.task)}</span>${esc(point.summary)}</td><td class="question-time"><strong>${seconds(point.duration)}</strong><small>${esc(point.status)}</small></td><td>${longest?`<span class="context-task">${esc(longest.task)}</span>${esc(longest.summary)}<small>${seconds(longest.end_s-longest.start_s)} · ${esc(longest.status)}</small>`:'—'}</td></tr>`;
+    const point=questionAt(model,selected),name=model.display_name||model.model;
+    return `<tr><td><details data-model="${esc(model.id)}" ${opened.has(model.id)?'open':''}><summary><span class="model-line" style="--model-color:${esc(model.color)}"></span><span class="compact-model" title="${esc(name)}">${esc(name)}</span>${model.current?'<span class="current-dot" title="Current run">LIVE</span>':''}</summary><div class="model-disclosure">${esc(name)}${name!==model.model?'<br>'+esc(model.model):''}<br>${esc(model.hardware)}<br>${esc(model.rules)}<br>${Number(model.points).toFixed(2)} points</div></details></td><td><span class="context-task">${esc(point.task)}</span>${esc(point.summary)}</td></tr>`;
   }).join('');
   document.getElementById('questionContextMode').textContent=selected==null?'Current or last question':`Question at ${seconds(selected)} active time`;
   document.getElementById('questionTime').value=selected==null?Math.min(3600,Math.max(...questionContextData.models.map(m=>m.end_s),0)):selected;
@@ -29,7 +29,7 @@ function renderQuestionContext(job){
   const panel=document.getElementById('questionContext');if(!panel)return;
   panel.hidden=document.getElementById('chartView').value!=='comparison';if(panel.hidden)return;
   const selection=job.id+'|'+document.getElementById('chartScope').value;
-  if(selection!==questionContextSelection){questionContextData=null;questionContextSelection=selection;questionContextTime=null;questionContextHover=null;document.getElementById('questionContextRows').innerHTML='<tr><td colspan="4">Loading question context…</td></tr>'}
+  if(selection!==questionContextSelection){questionContextData=null;questionContextSelection=selection;questionContextTime=null;questionContextHover=null;document.getElementById('questionContextRows').innerHTML='<tr><td colspan="2">Loading question context…</td></tr>'}
   const key=selection+'|'+Math.floor(Date.now()/10000);
   if(key===questionContextKey){renderQuestionContextRows();return}
   questionContextKey=key;
@@ -38,7 +38,7 @@ function renderQuestionContext(job){
     const data=await response.json();if(questionContextKey!==key)return;
     if(!Array.isArray(data.models))throw Error('Question context is unavailable.');
     questionContextData=data;renderQuestionContextRows();
-  }).catch(error=>{if(questionContextKey===key&&!questionContextData)document.getElementById('questionContextRows').innerHTML=`<tr><td colspan="4">${esc(error.message)}</td></tr>`});
+  }).catch(error=>{if(questionContextKey===key&&!questionContextData)document.getElementById('questionContextRows').innerHTML=`<tr><td colspan="2">${esc(error.message)}</td></tr>`});
 }
 function initializeQuestionContext(){
   const slider=document.getElementById('questionTime'),chart=document.getElementById('liveScoreChart');
