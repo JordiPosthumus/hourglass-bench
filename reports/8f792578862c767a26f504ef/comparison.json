@@ -1,0 +1,413 @@
+{
+  "format": "hourglass-comparison-v1",
+  "reports": [
+    {
+      "efficiency": {
+        "accuracy": 1.0,
+        "median_output_tokens": 1530,
+        "scored_answers": 19,
+        "token_data_complete": true,
+        "answers_per_active_minute": 0.31666012110376635
+      },
+      "hardware": {
+        "machine_key": "5245a46683e8452a77f42ddffc3efebac84502b5d693b384a9c07742681d59b4",
+        "source": "local system query",
+        "chip": "Apple M3 Ultra",
+        "memory_bytes": 549755813888,
+        "cpu_cores": 32,
+        "gpu": [
+          {
+            "model": "Apple M3 Ultra",
+            "cores": "80"
+          }
+        ],
+        "label": "Apple M3 Ultra \u00b7 512 GiB",
+        "captured_at": "2026-09-09T00:41:29.245647+00:00"
+      },
+      "machine_key": "5245a46683e8452a77f42ddffc3efebac84502b5d693b384a9c07742681d59b4",
+      "format": "hourglass-public-report-v1",
+      "model": "qwen3.8-27b-lmstudio-unsloth-q8-k-xl",
+      "created_at": "2026-09-09T01:43:39.182100+00:00",
+      "scoring": "weighted-hour-v1",
+      "timing_policy": "hour-v1",
+      "benchmark_version": "2.1.0",
+      "bank_fingerprint": "a7fcbb2ee785a43c76bce115115aad356bc2d1862c594be724bdf0b7c70f409f",
+      "state": "final",
+      "weighted_points": 25.638887,
+      "raw_correct": 19,
+      "completed_questions": 19,
+      "total_questions": 100,
+      "active_seconds": 3600.074,
+      "window_seconds": 3600,
+      "breakdown": {
+        "text": {
+          "points": 12,
+          "weighted_points": 16.75,
+          "completed_questions": 12
+        },
+        "vision": {
+          "points": 7,
+          "weighted_points": 8.888887,
+          "completed_questions": 7
+        }
+      },
+      "curve": [
+        {
+          "seconds": 0,
+          "weighted": 0,
+          "correct": 0
+        },
+        {
+          "seconds": 134.289,
+          "weighted": 0,
+          "correct": 0
+        },
+        {
+          "seconds": 134.289,
+          "weighted": 1.0,
+          "correct": 1
+        },
+        {
+          "seconds": 174.73,
+          "weighted": 1.0,
+          "correct": 1
+        },
+        {
+          "seconds": 174.73,
+          "weighted": 2.0,
+          "correct": 2
+        },
+        {
+          "seconds": 276.736,
+          "weighted": 2.0,
+          "correct": 2
+        },
+        {
+          "seconds": 276.736,
+          "weighted": 3.0,
+          "correct": 3
+        },
+        {
+          "seconds": 312.49,
+          "weighted": 3.0,
+          "correct": 3
+        },
+        {
+          "seconds": 312.49,
+          "weighted": 4.0,
+          "correct": 4
+        },
+        {
+          "seconds": 824.123,
+          "weighted": 4.0,
+          "correct": 4
+        },
+        {
+          "seconds": 824.123,
+          "weighted": 5.111111,
+          "correct": 5
+        },
+        {
+          "seconds": 1211.497,
+          "weighted": 5.111111,
+          "correct": 5
+        },
+        {
+          "seconds": 1211.497,
+          "weighted": 6.361111,
+          "correct": 6
+        },
+        {
+          "seconds": 1261.074,
+          "weighted": 6.361111,
+          "correct": 6
+        },
+        {
+          "seconds": 1261.074,
+          "weighted": 7.583333,
+          "correct": 7
+        },
+        {
+          "seconds": 1539.17,
+          "weighted": 7.583333,
+          "correct": 7
+        },
+        {
+          "seconds": 1539.17,
+          "weighted": 9.083333,
+          "correct": 8
+        },
+        {
+          "seconds": 1613.121,
+          "weighted": 9.083333,
+          "correct": 8
+        },
+        {
+          "seconds": 1613.121,
+          "weighted": 10.305555,
+          "correct": 9
+        },
+        {
+          "seconds": 1802.92,
+          "weighted": 10.305555,
+          "correct": 9
+        },
+        {
+          "seconds": 1802.92,
+          "weighted": 11.805555,
+          "correct": 10
+        },
+        {
+          "seconds": 1982.303,
+          "weighted": 11.805555,
+          "correct": 10
+        },
+        {
+          "seconds": 1982.303,
+          "weighted": 13.305555,
+          "correct": 11
+        },
+        {
+          "seconds": 2029.218,
+          "weighted": 13.305555,
+          "correct": 11
+        },
+        {
+          "seconds": 2029.218,
+          "weighted": 14.638888,
+          "correct": 12
+        },
+        {
+          "seconds": 2233.97,
+          "weighted": 14.638888,
+          "correct": 12
+        },
+        {
+          "seconds": 2233.97,
+          "weighted": 16.388888,
+          "correct": 13
+        },
+        {
+          "seconds": 2314.889,
+          "weighted": 16.388888,
+          "correct": 13
+        },
+        {
+          "seconds": 2314.889,
+          "weighted": 17.722221,
+          "correct": 14
+        },
+        {
+          "seconds": 2424.598,
+          "weighted": 17.722221,
+          "correct": 14
+        },
+        {
+          "seconds": 2424.598,
+          "weighted": 19.472221,
+          "correct": 15
+        },
+        {
+          "seconds": 2458.703,
+          "weighted": 19.472221,
+          "correct": 15
+        },
+        {
+          "seconds": 2458.703,
+          "weighted": 20.805554,
+          "correct": 16
+        },
+        {
+          "seconds": 3081.264,
+          "weighted": 20.805554,
+          "correct": 16
+        },
+        {
+          "seconds": 3081.264,
+          "weighted": 22.555554,
+          "correct": 17
+        },
+        {
+          "seconds": 3140.076,
+          "weighted": 22.555554,
+          "correct": 17
+        },
+        {
+          "seconds": 3140.076,
+          "weighted": 23.888887,
+          "correct": 18
+        },
+        {
+          "seconds": 3364.299,
+          "weighted": 23.888887,
+          "correct": 18
+        },
+        {
+          "seconds": 3364.299,
+          "weighted": 25.638887,
+          "correct": 19
+        },
+        {
+          "seconds": 3600,
+          "weighted": 25.638887,
+          "correct": 19
+        }
+      ],
+      "clock_adjustment_seconds": 0,
+      "execution": {
+        "stop_after_wrong": 20,
+        "repeat": 1
+      },
+      "configuration_disclosure": "Model settings not supplied; compare only equivalent settings."
+    },
+    {
+      "efficiency": {
+        "accuracy": 0.8571428571428571,
+        "median_output_tokens": 6183,
+        "scored_answers": 7,
+        "token_data_complete": true,
+        "answers_per_active_minute": 0.11666429932197044
+      },
+      "hardware": {
+        "machine_key": "5245a46683e8452a77f42ddffc3efebac84502b5d693b384a9c07742681d59b4",
+        "source": "local system query",
+        "chip": "Apple M3 Ultra",
+        "memory_bytes": 549755813888,
+        "cpu_cores": 32,
+        "label": "Apple M3 Ultra \u00b7 512 GiB",
+        "captured_at": "2026-09-09T00:16:13.142764+00:00",
+        "gpu": [
+          {
+            "model": "Apple M3 Ultra",
+            "cores": "80"
+          }
+        ]
+      },
+      "machine_key": "5245a46683e8452a77f42ddffc3efebac84502b5d693b384a9c07742681d59b4",
+      "format": "hourglass-public-report-v1",
+      "model": "qwen3.5-9b-lmstudio-bf16",
+      "created_at": "2026-09-09T01:43:39.183335+00:00",
+      "scoring": "weighted-hour-v1",
+      "timing_policy": "hour-v1",
+      "benchmark_version": "2.1.0",
+      "bank_fingerprint": "a7fcbb2ee785a43c76bce115115aad356bc2d1862c594be724bdf0b7c70f409f",
+      "state": "final",
+      "weighted_points": 6.472222,
+      "raw_correct": 6,
+      "completed_questions": 7,
+      "total_questions": 100,
+      "active_seconds": 3600.073,
+      "window_seconds": 3600,
+      "breakdown": {
+        "text": {
+          "points": 5,
+          "weighted_points": 5.25,
+          "completed_questions": 5
+        },
+        "vision": {
+          "points": 1,
+          "weighted_points": 1.222222,
+          "completed_questions": 2
+        }
+      },
+      "curve": [
+        {
+          "seconds": 0,
+          "weighted": 0,
+          "correct": 0
+        },
+        {
+          "seconds": 184.928,
+          "weighted": 0,
+          "correct": 0
+        },
+        {
+          "seconds": 184.928,
+          "weighted": 1.0,
+          "correct": 1
+        },
+        {
+          "seconds": 288.477,
+          "weighted": 1.0,
+          "correct": 1
+        },
+        {
+          "seconds": 288.477,
+          "weighted": 2.0,
+          "correct": 2
+        },
+        {
+          "seconds": 428.658,
+          "weighted": 2.0,
+          "correct": 2
+        },
+        {
+          "seconds": 428.658,
+          "weighted": 3.0,
+          "correct": 3
+        },
+        {
+          "seconds": 616.025,
+          "weighted": 3.0,
+          "correct": 3
+        },
+        {
+          "seconds": 616.025,
+          "weighted": 4.0,
+          "correct": 4
+        },
+        {
+          "seconds": 616.226,
+          "weighted": 4.0,
+          "correct": 4
+        },
+        {
+          "seconds": 616.226,
+          "weighted": 4.0,
+          "correct": 4
+        },
+        {
+          "seconds": 1270.631,
+          "weighted": 4.0,
+          "correct": 4
+        },
+        {
+          "seconds": 1270.631,
+          "weighted": 4.0,
+          "correct": 4
+        },
+        {
+          "seconds": 2393.274,
+          "weighted": 4.0,
+          "correct": 4
+        },
+        {
+          "seconds": 2393.274,
+          "weighted": 5.25,
+          "correct": 5
+        },
+        {
+          "seconds": 2414.278,
+          "weighted": 5.25,
+          "correct": 5
+        },
+        {
+          "seconds": 2414.278,
+          "weighted": 6.472222,
+          "correct": 6
+        },
+        {
+          "seconds": 3600,
+          "weighted": 6.472222,
+          "correct": 6
+        }
+      ],
+      "clock_adjustment_seconds": 904.665,
+      "execution": {
+        "stop_after_wrong": 20,
+        "repeat": 1
+      },
+      "configuration_disclosure": "Model settings not supplied; compare only equivalent settings."
+    }
+  ]
+}
