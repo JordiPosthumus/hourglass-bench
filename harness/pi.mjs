@@ -1,3 +1,4 @@
+import {completeResponseFetch} from './complete-response.mjs';
 import fs from 'node:fs';
 import {createIsolatedFileTools} from './tool-files.mjs';
 import path from 'node:path';
@@ -27,7 +28,7 @@ const loader=new DefaultResourceLoader({cwd,agentDir,settingsManager,noExtension
    if(cfg.reasoning!==undefined)p.reasoning=cfg.reasoning;
    Object.assign(p,cfg.extra??{});delete p.temperature;
    const keys=['temperature','top_p','top_k','min_p','repetition_penalty','frequency_penalty','presence_penalty','reasoning','reasoning_effort','max_tokens'];
-   emit({requested_settings:{pi_thinking_level:session?.thinkingLevel??null,captured_at:new Date().toISOString(),values:Object.fromEntries(keys.filter(k=>p[k]!==undefined).map(k=>[k,p[k]])),omitted:keys.filter(k=>p[k]===undefined)}});return p;
+   emit({requested_settings:{pi_thinking_level:session?.thinkingLevel??null,captured_at:new Date().toISOString(),response_mode:cfg.response_mode ?? 'stream',values:Object.fromEntries(keys.filter(k=>p[k]!==undefined).map(k=>[k,p[k]])),omitted:keys.filter(k=>p[k]===undefined)}});return p;
  });
  pi.on('tool_call',e=>{
    if(['read','write','edit'].includes(e.toolName))e.input.path=guard(e.input.path,e.toolName==='read');
@@ -45,6 +46,12 @@ try{
  const finalTool={name:input.finalTool,label:input.finalTool,description:input.answerDescription,
  parameters:input.answerSchema,execute:async(_id,args)=>{answer=args;return {content:[{type:'text',text:'Answer recorded. The benchmark question is complete.'}],details:{}};}};
  ({session}=await createAgentSession({cwd,agentDir,modelRuntime:runtime,model,resourceLoader:loader,settingsManager,sessionManager:SessionManager.create(cwd,path.join(agentDir,'sessions')),customTools:[...fileTools.tools,finalTool]}));
+ if (cfg.response_mode !== undefined && !['stream','complete'].includes(cfg.response_mode)) throw Error('Unknown response_mode; use stream or complete.');
+ if (cfg.response_mode === 'complete') {
+   const originalStream = session.agent.streamFunction;
+   const fetchComplete = completeResponseFetch();
+   session.agent.streamFunction = (model, context, options) => originalStream(model, context, {...options, fetch:fetchComplete});
+ }
  emit({thinking_settings:{pi_thinking_level:session.thinkingLevel,source:"Pi session getter",captured_at:new Date().toISOString()}});
  session.subscribe(e=>{
    if(e.type!=='message_update'&&e.type!=='tool_execution_update')emit({event:e});

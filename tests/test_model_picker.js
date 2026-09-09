@@ -15,3 +15,9 @@ console.log('Model form checks passed.');
 
 assert.throws(()=>forms.entry(values,{extra:{max_tokens:1024}}),/override/);
 assert.equal(forms.entry(values,{extra:{max_tokens:262144}}).extra.max_tokens,262144);
+
+const original={custom:{preserve:true},models:[{name:'Keep',extra:{thinking:true}},{name:'Remove',model:'same-id'}]};
+assert.deepEqual(forms.withoutModel(JSON.stringify(original),'Remove'),{custom:original.custom,models:[original.models[0]]});
+assert.equal(original.models.length,2);
+assert.deepEqual(forms.withoutModel(JSON.stringify({models:[{name:'Only'}]}),'Only'),{models:[]});
+assert.throws(()=>forms.withoutModel(JSON.stringify(original),'Missing'),/changed/);

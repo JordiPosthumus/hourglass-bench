@@ -16,6 +16,12 @@ const ModelForms = {
     else delete out.context_window;
     return out;
   },
+  withoutModel(text, name) {
+    const doc = JSON.parse(text);
+    if (!Array.isArray(doc.models) || doc.models.filter(m => m.name === name).length !== 1) throw Error('Model settings changed. Refresh before removing this model.');
+    doc.models = doc.models.filter(m => m.name !== name);
+    return doc;
+  },
   uniqueName(name, saved) {
     let candidate = name, n = 2; while (saved.some(m => m.name === candidate)) candidate = `${name}-${n++}`; return candidate;
   }
@@ -30,8 +36,27 @@ class ModelPicker {
   }
   sync() {
     const models = this.getState()?.model_configs || [], e = this.esc;
-    this.$('savedModelRows').innerHTML = models.map((m, i) => `<tr><td><strong>${e(m.name)}</strong><span class="questionmeta">${e(m.model)}</span></td><td>${e(m.base_url)}</td><td>${e(m.hardware || 'Not set')}</td><td>${e(m.extra?.max_tokens ?? m.max_tokens ?? 'Not set')}</td><td><button class="button secondary" data-copy-model="${i}">Duplicate</button></td></tr>`).join('') || '<tr><td colspan="5">Add your first model above.</td></tr>';
+    this.$('savedModelRows').innerHTML = models.map((m, i) => `<tr><td><strong>${e(m.name)}</strong><span class="questionmeta">${e(m.model)}</span></td><td>${e(m.base_url)}</td><td>${e(m.hardware || 'Not set')}</td><td>${e(m.extra?.max_tokens ?? m.max_tokens ?? 'Not set')}</td><td><div class="saved-model-actions"><button class="button secondary" data-copy-model="${i}">Duplicate</button><button class="button secondary" data-remove-model="${i}" aria-label="Remove ${e(m.name)}">Remove</button></div></td></tr>`).join('') || '<tr><td colspan="5">Add your first model above.</td></tr>';
     this.$('savedModelRows').querySelectorAll('[data-copy-model]').forEach(b => b.onclick = () => this.open('server', models[+b.dataset.copyModel]));
+    this.$('savedModelRows').querySelectorAll('[data-remove-model]').forEach(b => b.onclick = () => this.remove(models[+b.dataset.removeModel]));
+  }
+  remove(model) {
+    if (!this.canOpen()) { this.toast('Save or discard your JSON edits before removing a model.'); return; }
+    const state = this.getState(), revision = state.models_revision;
+    if ([...(state.jobs?.running || []), ...(state.jobs?.pending || [])].some(j => j.model === model.name)) {
+      this.toast('Finish or stop the active and queued runs using this model before removing it.'); return;
+    }
+    const doc = ModelForms.withoutModel(state.models_json, model.name);
+    this.dialog('Remove saved model?', `<p>Remove <strong>${this.esc(model.name)}</strong> from the saved models and new-run picker?</p><p>Past runs and results stay available. Model files and the model server are unchanged. The current configuration is backed up before saving.</p>`, [
+      {label:'Cancel', click:() => this.$('dialog').close()},
+      {label:'Remove model', primary:true, click:async b => {
+        b.disabled = true;
+        try {
+          const result = await this.api('/api/models', {text:JSON.stringify(doc, null, 2), revision});
+          this.$('dialog').close(); await this.refresh(); this.toast(`Model removed. Configuration backup: ${result.backup}`);
+        } catch (error) { this.toast(error.message); b.disabled = false; }
+      }}
+    ]);
   }
   open(source, copy = null) {
     if (!this.getState()?.model_library_available) { this.toast('Restart the Hourglass Bench console from your Terminal to enable model discovery, then refresh this page.'); return; }
