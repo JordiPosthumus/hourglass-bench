@@ -1,4 +1,4 @@
-"""One-hour run stop and completion chime. Never touches a model server."""
+"""One-hour run stop and outcome sounds. Never touches a model server."""
 import argparse
 import json
 import pathlib
@@ -20,13 +20,63 @@ def remaining(job, now=None):
     return max(0, WINDOW_S - elapsed)
 
 
-def chime():
-    sound = pathlib.Path('/System/Library/Sounds/Glass.aiff')
+def chime(failed=False):
+    sound = (pathlib.Path(__file__).resolve().parent / 'sounds' / 'run-failed.wav'
+             if failed else pathlib.Path('/System/Library/Sounds/Glass.aiff'))
     if sound.exists():
         try:
             subprocess.Popen(['/usr/bin/afplay', str(sound)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except OSError:
             pass  # Audio availability must never break result persistence or the worker.
+
+
+def failed_run(job):
+    return job.get('state') == 'error' or (job.get('state') == 'completed' and bool(job.get('stopped_after')))
+
+
+def finish_sound(job):
+    if failed_run(job):
+        chime(failed=True)
+    elif job.get('stop_reason') == 'hour_limit' or job.get('state') == 'completed':
+        chime()
+
+
+def watch_failures(base, lock_path=None):
+    """Read-only audio bridge until an older controller restarts with this feature."""
+    import fcntl
+    import hashlib
+    lock = lock_path or pathlib.Path(__file__).resolve().parent / 'logs' / ('failure-sound-' + hashlib.sha256(base.encode()).hexdigest()[:16] + '.lock')
+    lock.parent.mkdir(exist_ok=True)
+    with lock.open('a') as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print('Failure sound observer is already running.', flush=True)
+            return
+        seen = None
+        while True:
+            try:
+                with urllib.request.urlopen(base + '/api/state', timeout=10) as response:
+                    state = json.load(response)
+                if state.get('failure_sound_version', 0) >= 1:
+                    print('Built-in failure sound active; observer exiting.', flush=True)
+                    return
+                ended = [j for group in state['jobs'].values() for j in group
+                         if j.get('state') not in ('running', 'pending')]
+                keys = {(j['id'], j.get('resume_count', 0)) for j in ended}
+                if seen is None:
+                    seen = keys  # Never replay historical failures at startup.
+                    print('Failure sound armed; existing history is silent.', flush=True)
+                else:
+                    for job in ended:
+                        key = (job['id'], job.get('resume_count', 0))
+                        if key not in seen and failed_run(job):
+                            chime(failed=True)
+                            print('Failure sound played for an ended run.', flush=True)
+                    seen.update(keys)
+            except (OSError, ValueError) as exc:
+                print(f'Failure sound observer connection error: {exc}; retrying.', flush=True)
+            time.sleep(2)
 
 
 def watch_job(job, condition, stop):
@@ -105,9 +155,12 @@ def watch_server(base):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--job')
+    parser.add_argument('--failures-only', action='store_true')
     parser.add_argument('--base-url', default='http://127.0.0.1:8788')
     args = parser.parse_args()
-    if args.job:
+    if args.failures_only:
+        watch_failures(args.base_url.rstrip('/'))
+    elif args.job:
         watch_existing(args.base_url, args.job)
     else:
         watch_server(args.base_url)

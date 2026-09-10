@@ -1,4 +1,6 @@
 import threading
+import io
+import json
 import time
 import unittest
 import tempfile
@@ -39,6 +41,42 @@ class HourDeadlineTests(unittest.TestCase):
     def test_chime_uses_system_sound(self,exists,popen):
         hour_deadline.chime()
         self.assertEqual(popen.call_args.args[0],['/usr/bin/afplay','/System/Library/Sounds/Glass.aiff'])
+
+    def test_failure_sound_plays_bundled_audio_and_tolerates_missing_player(self):
+        with mock.patch.object(hour_deadline.subprocess,'Popen') as play:
+            hour_deadline.chime(failed=True)
+            self.assertEqual(Path(play.call_args.args[0][1]),Path(hour_deadline.__file__).parent/'sounds/run-failed.wav')
+            self.assertEqual(play.call_args.args[0][0],'/usr/bin/afplay')
+        with mock.patch.object(hour_deadline.subprocess,'Popen',side_effect=FileNotFoundError):
+            hour_deadline.chime(failed=True)
+
+    def test_terminal_sound_distinguishes_failure_completion_and_manual_stop(self):
+        cases=[({'state':'error'},mock.call(failed=True)),
+               ({'state':'completed','stopped_after':'fixture'},mock.call(failed=True)),
+               ({'state':'completed'},mock.call()),
+               ({'state':'stopped','stop_reason':'hour_limit'},mock.call()),
+               ({'state':'stopped','stop_reason':'user','stopped_after':'fixture'},None),
+               ({'state':'cancelled'},None)]
+        for job,expected in cases:
+            with self.subTest(job=job),mock.patch.object(hour_deadline,'chime') as play:
+                hour_deadline.finish_sound(job)
+                self.assertEqual(play.call_args_list,[] if expected is None else [expected])
+
+    def test_live_bridge_skips_history_deduplicates_and_hands_off_to_controller(self):
+        old={'id':'old','state':'error','ended':1}
+        failed={'id':'new','state':'error','ended':2}
+        resumed={**failed,'resume_count':1,'ended':3}
+        snapshots=[{'jobs':{'done':[old],'running':[{'id':'new','state':'running'}]}},
+                   {'jobs':{'done':[{**old,'ended':99},failed]}},
+                   {'jobs':{'done':[old,failed]}},
+                   {'jobs':{'done':[old,resumed]}},
+                   {'failure_sound_version':1,'jobs':{'done':[old,resumed]}}]
+        with tempfile.TemporaryDirectory() as directory,\
+             mock.patch.object(hour_deadline.urllib.request,'urlopen',side_effect=[io.BytesIO(json.dumps(s).encode()) for s in snapshots]) as get,\
+             mock.patch.object(hour_deadline.time,'sleep'),mock.patch.object(hour_deadline,'chime') as play:
+            hour_deadline.watch_failures('http://fixture.invalid',Path(directory)/'observer.lock')
+            self.assertEqual(play.call_args_list,[mock.call(failed=True),mock.call(failed=True)])
+            self.assertTrue(all(call.args==('http://fixture.invalid/api/state',) for call in get.call_args_list))
 
     def test_worker_deadline_stops_real_fixture_process(self):
         import web

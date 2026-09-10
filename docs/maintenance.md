@@ -165,3 +165,9 @@ The public README now leads with agent-assisted installation and creating a priv
 The current-question API reconstructs the frozen per-run/per-repeat option layout and exposes declared images; it never returns answer keys or presentation seeds. The UI refreshes the exact preview as repeats advance. Temporary attachments for an older active controller remain ignored private data under `ui/run-previews/`.
 
 Passive telemetry adds MTPLX, oMLX, vLLM, SGLang, llama.cpp and explicitly selected DSG worker readers. LM Studio and legacy SSH logs retain support. Ollama's missing passive live counters are shown explicitly. Rate labels disclose request-average versus decode-window versus aggregate counter throughput. See the telemetry guide for version and attribution limitations. No inference parameters, frozen Pi files, option randomization policy or scoring rules changed in this patch.
+
+## Run outcome sounds
+
+A run error or consecutive-wrong-answer stop plays the bundled 3.23-second “booo booo womp womp womp” cue once. Individual wrong answers and question timeouts do not trigger it; manual stop/cancellation is silent. Normal completion and the one-hour boundary keep the existing Glass chime. Audio plays asynchronously on the controller’s Mac and cannot block result persistence. See [sound source and generation](../sounds/README.md).
+
+An already-running older controller can use `python3 hour_deadline.py --failures-only --base-url http://127.0.0.1:4534` to add failure audio without a restart. This temporary observer reads state only, ignores existing history, distinguishes resumed attempts and allows only one observer per checkout/base URL. It exits when the restarted controller advertises built-in failure audio.

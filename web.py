@@ -217,7 +217,7 @@ def state():
         for job in [*running,*queue,*done]:
             if job.get('repair'):rows.extend(r for r in repair_runs.composite_rows(job,rows) if r.get('repair_inherited') and not any(x.get('evaluation_id')==job['id'] and x.get('run_id')==r.get('run_id') for x in rows))
         jobs={'running':[public_job(j,rows) for j in running], 'pending':[public_job(j,rows) for j in queue], 'done':[public_job(j,rows) for j in done]}
-    return {'app':'Hourglass','version':2,'tasks':task_catalog(),'models':model_names(),
+    return {'app':'Hourglass','version':2,'failure_sound_version':1,'tasks':task_catalog(),'models':model_names(),
             'model_configs':doc.get('models',[]),'models_json':json.dumps(doc,indent=2),'models_revision':models_revision,'model_library_available':True,
             'model_errors':hourglass.validate_models(doc),'results':rows,
             'endpoint_hardware':endpoint_hardware.snapshot(ROOT,doc.get('models',[])),
@@ -470,7 +470,7 @@ def worker():
                 job['ended']=time.time();job['elapsed_s']+=job['ended']-job['active_started'];job['active_started']=None
                 job['active_intervals'][-1]['end']=job['ended']
                 running.remove(job);done.append(job);condition.notify_all();calibration.update_evaluation(ROOT,job)
-            if job.get('stop_reason')=='hour_limit' or job['state']=='completed':hour_deadline.chime()
+            hour_deadline.finish_sound(job)
 
 def persist_recovery(path, manifest):
     recovered=run_recovery.recover(ROOT,manifest)

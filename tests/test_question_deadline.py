@@ -24,6 +24,8 @@ for repeat in indices:
   time.sleep(.08 if repeat==1 else 30)
  elif tid=='fail':
   time.sleep(.08);sys.exit(1)
+ elif tid=='missing':
+  sys.exit(0)
  row={'task':tid,'run':repeat,'status':'completed','solved':True,'evaluation_id':'fixture','ts':__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()}
  with (root/'results/results.jsonl').open('a') as f:f.write(json.dumps(row)+'\\n')
 '''
@@ -48,6 +50,7 @@ class QuestionDeadlineTests(unittest.TestCase):
      self.assertTrue(condition.wait_for(lambda:bool(done),timeout=4),job)
      web.worker_stop=True;condition.notify_all()
     thread.join(1)
+    self.sound_calls=list(web.hour_deadline.chime.call_args_list)
     return job,rows(),time.monotonic()-started
    finally:
     with condition:web.worker_stop=True;condition.notify_all()
@@ -57,6 +60,7 @@ class QuestionDeadlineTests(unittest.TestCase):
  def test_shared_repeats_timeout_then_auto_advance(self):
   job,rows,elapsed=self.exercise()
   self.assertEqual(job['state'],'completed',job)
+  self.assertEqual(self.sound_calls,[mock.call()])
   self.assertEqual([(r['task'],r['run'],r['status']) for r in rows],[('a',1,'completed'),('a',2,'timeout'),('b',1,'completed')])
   self.assertLess(elapsed,1.5);self.assertGreaterEqual(job['question_elapsed_s']['a'],.24)
   self.assertFalse(run_tracking.missing_repeats({'expected':[{'task':'a','repeat':3}]},rows,'a'))
@@ -74,6 +78,12 @@ class QuestionDeadlineTests(unittest.TestCase):
  def test_failure_time_is_retained_for_resume(self):
   job,rows,elapsed=self.exercise(tasks=('fail',))
   self.assertEqual(job['state'],'error');self.assertGreater(job['question_elapsed_s']['fail'],.07)
+  self.assertEqual(self.sound_calls,[mock.call(failed=True)])
+
+ def test_missing_result_plays_failure_sound_once(self):
+  job,rows,elapsed=self.exercise(tasks=('missing',))
+  self.assertEqual(job['state'],'error');self.assertIn('valid result',job['error'])
+  self.assertEqual(self.sound_calls,[mock.call(failed=True)])
 
  def test_child_cleanup_survives_parent_exit(self):
   with tempfile.TemporaryDirectory() as directory:
