@@ -27,7 +27,7 @@ def score(job, rows, expected=(), now=None):
         return sum(max(0, min(ts, part.get('end') or ts) - part['start']) for part in intervals)
 
     elapsed = active_at(job.get('ended') or now) if timing_known else job.get('progress', {}).get('elapsed_s', 0)
-    elapsed += job.get('repair',{}).get('base_elapsed_s',0) if timing_known else 0
+    elapsed += (job.get('repair') or {}).get('base_elapsed_s',0) if timing_known else 0
     within, after, errors, unknown = [], set(), 0, 0
     timeouts = set()
     for r in raw:
@@ -83,7 +83,7 @@ def score(job, rows, expected=(), now=None):
             'completed_questions': len(completed), 'incorrect_questions': len(wrong),
             'total_questions': len(tids), 'after_deadline_questions': len(after), 'errors': errors,
             'elapsed_s': elapsed, 'remaining_s': max(0, WINDOW_S - elapsed), 'state': state,
-            'repair_policy':job.get('repair',{}).get('policy'),
+            'repair_policy':(job.get('repair') or {}).get('policy'),
             'timing_note': 'Selected question results were reset; rerun them with a fresh clock. The original hourly score is withheld.' if job.get('results_reset') else repair_runs.NOTE if job.get('repair') and available else 'Recorded completion timestamps on active wall clock, including thinking, tools and retries.' if available else 'Missing completion timestamps or historical pause intervals; hourly score withheld.'}
 
 

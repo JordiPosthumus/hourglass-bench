@@ -32,7 +32,7 @@ def timeline(job, manifest, rows, entries, now):
     intervals=job.get('active_intervals') or ([{'start':job['started'],'end':job.get('ended')}] if job.get('started') else [])
     def active_at(stamp):
         return sum(max(0,min(stamp,p.get('end') or stamp)-p['start']) for p in intervals)
-    base=job.get('repair',{}).get('base_elapsed_s',0)
+    base=(job.get('repair') or {}).get('base_elapsed_s',0)
     end=min(3600,base+active_at(job.get('ended') or now))
     spans=[];last=0
     raw=run_tracking.raw_attempts(manifest,rows)

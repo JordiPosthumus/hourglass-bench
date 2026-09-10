@@ -32,7 +32,7 @@ def composite_rows(manifest, rows):
 def elapsed_at(manifest, row):
     if row.get('repair_inherited'):return row['repair_elapsed_s']
     ts=dt.datetime.fromisoformat(row['ts']).timestamp()
-    return manifest.get('repair',{}).get('base_elapsed_s',0)+active_at(manifest,ts)
+    return (manifest.get('repair') or {}).get('base_elapsed_s',0)+active_at(manifest,ts)
 
 
 def dependencies(root, jid):
@@ -40,7 +40,7 @@ def dependencies(root, jid):
     for p in (Path(root)/'evaluations').glob('*.json'):
         try:m=json.loads(p.read_text())
         except (OSError,ValueError):continue
-        if m.get('repair',{}).get('source_evaluation_id')==jid:result.append(m['id'])
+        if (m.get('repair') or {}).get('source_evaluation_id')==jid:result.append(m['id'])
     return result
 
 

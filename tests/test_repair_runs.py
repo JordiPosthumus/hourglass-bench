@@ -41,6 +41,17 @@ class RepairTests(unittest.TestCase):
         job=repair_runs.create(self.root,self.source,self.rows,{'tasks':p['tasks'],'revision':p['revision']},'2.5.1')
         return p,job
 
+    def test_normal_run_with_explicit_null_repair(self):
+        source=copy.deepcopy(self.source);source['repair']=None
+        expected=hour_score.score(self.source,self.rows,self.source['expected'])
+        self.assertEqual(hour_score.score(source,self.rows,source['expected']),expected)
+        report=json.loads(score_report.build(self.root,source,self.rows,source)['report.json'])
+        self.assertNotIn('repair',report)
+        import question_context
+        question_context.build(self.root,[report],[source],self.rows,4600)
+        calibration.write(self.root/'evaluations/original.json',source)
+        self.assertEqual(repair_runs.dependencies(self.root,'original'),[])
+
     def test_preserves_original_and_exact_config_with_explicit_credit(self):
         original=(self.root/'evaluations/original.json').read_bytes();index=(self.root/'results/results.jsonl').read_bytes()
         p,job=self.create()
