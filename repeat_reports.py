@@ -8,7 +8,7 @@ import report_charts
 
 def group_key(report):
     config=report.get('configuration_key')
-    if not config or report.get('state')!='final' or report.get('is_current_run'):return None
+    if not config or report.get('state')!='final' or report.get('is_current_run') or report.get('repair') or report.get('caveats'):return None
     fields=('benchmark_version','bank_fingerprint','machine_key','scoring','timing_policy','question_timeout_policy','execution')
     return json.dumps([config,*[report.get(k) for k in fields],report.get('experiment',{}).get('parameters')],sort_keys=True)
 

@@ -5,6 +5,7 @@ import json
 import math
 from pathlib import Path
 
+import repair_runs
 import report_charts
 import run_tracking
 
@@ -26,11 +27,13 @@ def summary(entries, expected):
 
 
 def timeline(job, manifest, rows, entries, now):
+    if manifest.get('repair'):job={**job,'repair':manifest['repair']}
     expected={e['task']:e for e in manifest.get('expected',[])}
     intervals=job.get('active_intervals') or ([{'start':job['started'],'end':job.get('ended')}] if job.get('started') else [])
     def active_at(stamp):
         return sum(max(0,min(stamp,p.get('end') or stamp)-p['start']) for p in intervals)
-    end=min(3600,active_at(job.get('ended') or now))
+    base=job.get('repair',{}).get('base_elapsed_s',0)
+    end=min(3600,base+active_at(job.get('ended') or now))
     spans=[];last=0
     raw=run_tracking.raw_attempts(manifest,rows)
     def add(task, stop, status):
@@ -41,22 +44,25 @@ def timeline(job, manifest, rows, entries, now):
         else:
             spans.append({'task':task,'summary':summary(entries,expected[task]),'start_s':round(last,3),'end_s':round(stop,3),'status':status})
         last=stop
-    for row in sorted(raw,key=run_tracking.timestamp):
+    for row in sorted(raw,key=lambda r:repair_runs.elapsed_at(job,r) if job.get('repair') else run_tracking.timestamp(r)):
         if row.get('task') not in expected or run_tracking.is_early_stop(row):continue
         stamp=run_tracking.timestamp(row)
-        if not intervals or stamp<intervals[0]['start']:continue
-        stop=active_at(stamp)
+        if not row.get('repair_inherited') and (not intervals or stamp<intervals[0]['start']):continue
+        stop=repair_runs.elapsed_at(job,row) if job.get('repair') else active_at(stamp)
         if stop>end:continue
         if row.get('status')=='timeout':status='Timed out'
         elif row.get('status')=='error':status='Execution error'
         elif row.get('status')=='completed':
             status='Correct' if row.get('solved') else 'Unsupported vision' if row.get('score_reason')=='unsupported_vision' else 'No answer' if row.get('score_reason') in ('abstained','not_attempted','turn_limit') else 'Incorrect'
         else:continue
+        if row.get('repair_inherited'):status='Retained · '+status
+        elif job.get('repair'):last=max(last,min(base,end))
         add(row['task'],stop,status)
     current=job.get('current_task')
     if current in expected and end>last and (job.get('state')=='running' or run_tracking.missing_repeats(manifest,raw,current)):
+        if job.get('repair'):last=max(last,min(base,end))
         add(current,end,'Working' if job.get('state')=='running' else 'Stopped')
-    return {'spans':spans,'end_s':round(end,3),'state':job.get('state'),'timing_basis':'Active wall time between recorded question completions; includes setup, thinking, tools and retries. Pauses excluded.'}
+    return {'spans':spans,'end_s':round(end,3),'state':job.get('state'),'timing_basis':repair_runs.NOTE if job.get('repair') else 'Active wall time between recorded question completions; includes setup, thinking, tools and retries. Pauses excluded.'}
 
 
 def build(root, reports, jobs, rows, now, individual_reports=None):

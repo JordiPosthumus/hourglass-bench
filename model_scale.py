@@ -6,6 +6,8 @@ import shutil
 import time
 import uuid
 
+import repair_runs
+import attempt_annotations
 import calibration
 import hour_score
 import score_weights
@@ -57,7 +59,7 @@ def evaluations(root,rows,jobs=(),now=None):
                        'elapsed_s':score['elapsed_s'],'completed_questions':score['completed_questions'],
                        'scoring_policy':score['scoring_policy'],'timeouts':score['timeouts'],
                        'available':available,'unavailable_reason':None if available else 'This run needs a recorded score with known active time before you can assign a target.',
-                       'config_hash':manifest.get('config_hash'),'bank_hash':calibration.digest(expected)})
+                       'config_hash':manifest.get('config_hash'),'bank_hash':calibration.digest(expected),'caveats':attempt_annotations.summary(repair_runs.composite_rows(manifest,rows),job['id'])+([repair_runs.CAVEAT] if manifest.get('repair') else []),'repair':bool(manifest.get('repair'))})
     return sorted(output,key=lambda e:e['created'],reverse=True)
 
 

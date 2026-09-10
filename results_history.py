@@ -68,7 +68,7 @@ def evolution(reports):
     if not groups:out.append('<text x="30" y="70">No published runs yet.</text>')
     out.append('</g></svg>');return ''.join(out)
 
-PUBLIC_KEYS=('format','display_name','model','run_key','run_date','experiment','hardware','machine_key','bank_fingerprint','scoring','timing_policy','benchmark_version','question_timeout_policy','execution','state','weighted_points','raw_correct','active_seconds','efficiency','clock_adjustment_seconds','curve','breakdown','unsupported_vision_questions','auc','gross_points','net_points','incorrect_questions','abstained_questions','penalty_points')
+PUBLIC_KEYS=('repair','caveats','format','display_name','model','run_key','run_date','experiment','hardware','machine_key','bank_fingerprint','scoring','timing_policy','benchmark_version','question_timeout_policy','execution','state','weighted_points','raw_correct','active_seconds','efficiency','clock_adjustment_seconds','curve','breakdown','unsupported_vision_questions','auc','gross_points','net_points','incorrect_questions','abstained_questions','penalty_points')
 
 def catalog_files(existing,report,token):
     entry={k:report[k] for k in PUBLIC_KEYS if k in report};entry['report_folder']=token

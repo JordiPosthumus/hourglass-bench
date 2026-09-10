@@ -5,6 +5,8 @@ import html
 import json
 import statistics
 import math
+import attempt_annotations
+import repair_runs
 import hour_score
 import scoring_policy
 import score_weights
@@ -15,6 +17,10 @@ import run_editor
 
 
 def build(root, job, rows, manifest):
+    if manifest.get('repair'):
+        job={**job,'repair':manifest['repair'],'_repair_rows_materialized':True}
+        rows=repair_runs.composite_rows(job,rows)
+    rows=attempt_annotations.apply(root,rows)
     if manifest.get('results_reset'):job={**job,'results_reset':manifest['results_reset']}
     expected=score_weights.enrich(root,manifest['expected'])
     h=hour_score.score(job,rows,expected)
@@ -33,7 +39,7 @@ def build(root, job, rows, manifest):
         if r.get('evaluation_id')!=job['id']:continue
         try:ts=dt.datetime.fromisoformat(r['ts']).timestamp()
         except (KeyError,ValueError,TypeError):continue
-        active=sum(max(0,min(ts,p.get('end') or ts)-p['start']) for p in intervals)
+        active=repair_runs.elapsed_at(job,r) if job.get('repair') else sum(max(0,min(ts,p.get('end') or ts)-p['start']) for p in intervals)
         if active<=min(3600,h['elapsed_s']):events.append((active,r))
     points=[{'seconds':0,'weighted':0,'correct':0}];filtered=[]
     for active,r in sorted(events,key=lambda e:e[0]):
@@ -61,17 +67,22 @@ def build(root, job, rows, manifest):
             'timeouts':h['timeouts'],
             'execution':{'question_timeout_s':job.get('question_timeout_s'),'stop_after_wrong':job.get('stop_after_wrong',20),'repeat':manifest.get('repeat',1)},
             'configuration_disclosure':'Model settings not supplied; compare only equivalent settings.'}
+    report['caveats']=attempt_annotations.summary(rows,job['id'],public=True)+([repair_runs.CAVEAT] if job.get('repair') else [])
     report['unsupported_vision_questions']=len({r['task'] for active,r in events if r.get('score_reason')=='unsupported_vision'})
     report.update(run_key=hashlib.sha256(str(job['id']).encode()).hexdigest()[:24],
                   run_date=dt.datetime.fromtimestamp(job.get('started') or job.get('created') or 0,dt.timezone.utc).isoformat(),
                   experiment=results_history.load(root,job['id']))
     report['configuration_key']=run_editor.setup_key(manifest)
     if manifest.get('id'):report['display_name']=run_editor.display(root,manifest)['name']
+    if job.get('repair'):report['display_name']+=' · Repaired'
+    elif report['caveats']:report['display_name']+=' ⚠'
     report['auc']=report_charts.auc(points,final=h['state']=='final')
     report['auc']['scoring_policy']=h['scoring_policy']
     star='*' if credits else ''
     svg=report_charts.progress_chart([report])
     readme=f"# Hourglass Bench result\n\n![Score graph](score.svg)\n\nModel: {report['model'].replace(chr(10),' ')}\n\n**{h['weighted_points']:.2f} weighted points{star}**, {h['points']} correct. Status: **{h['state']}**.\n\nFixed difficulty weights: charts 1–10 → 1–2; games 1–5 → 1–2; math high school / undergraduate / graduate → 1 / 1.5 / 2. One award per question within 3,600 active seconds.\n\nBank fingerprint: `{report['bank_fingerprint']}`. Compare the same bank, order, repeat policy, model settings and hardware. Inference machine: {hardware['label']}. Model configuration disclosure has not been supplied.\n\n[Aggregate data](report.json)\n\nHardware source: {hardware.get('source','unknown')}.\n"
+    if report['caveats']:
+        readme+='\n## Result caveats\n\n'+'\n\n'.join('**'+c['label']+'** ('+str(c['attempts'])+' attempt(s)): '+c['message'] for c in report['caveats'])+'\n'
     if scoring_policy.is_net(h['scoring_policy']):readme+=f"\nNet scoring: +1–2 for a correct question, −1 for an incorrect final submission, zero for unsupported vision, timeout or no final submission. Gross: {h['gross_points']}; penalties: {h['penalty_points']}; abstained: {h['abstained_questions']}. A correct repeat supersedes an earlier incorrect answer; penalties never accumulate for repeated wrong answers to one question.\n"
     if h['scoring_policy']==scoring_policy.NET:readme+='\nExplicit abstention is not offered under net-hour-v2.\n'
     elif h['scoring_policy']==scoring_policy.WITH_ABSTENTION:readme+='\nThis historical run offered explicit abstention for zero points.\n'
@@ -80,7 +91,9 @@ def build(root, job, rows, manifest):
     readme+='\n## Experiment configuration\n\n'+('\n'.join('- '+k.replace('_',' ')+': '+html.escape(v) for k,v in report['experiment'].items()) or 'Configuration not recorded.')+'\n\nThese evaluations use private questions. Only aggregate results and explicitly recorded public configuration labels are published.\n'
     a=report['auc']['point_minutes'] if report['auc']['state']=='final' else None
     readme+='\nAUC companion: '+(f'**{a:.2f} weighted point-minutes**' if a is not None else 'pending a final run')+'. This rewards points earned earlier; it does not replace the weighted one-hour score. It integrates the exact stepped score. There is no maximum or percentage normalization.\n'
+    if job.get('repair'):readme+='\n**Repaired run.** '+repair_runs.NOTE+' Source: '+job['repair']['source_evaluation_id']+'.\n'
     if credits:readme+='\n<sub>*Clock adjusted to exclude a harness interruption.</sub>\n'
+    if job.get('repair'):report['repair']={k:job['repair'][k] for k in ('policy','source_evaluation_id','source_version','source_elapsed_s','refunded_s','base_elapsed_s','note')}
     return {'report.json':json.dumps(report,indent=2)+'\n','score.svg':svg,'README.md':readme}
 
 

@@ -4,6 +4,7 @@ import fcntl
 import hashlib
 import json
 import uuid
+import repair_runs
 import calibration
 import model_scale
 from pathlib import Path
@@ -38,6 +39,7 @@ def reset(root, body):
         ids=set(ids); removed=[r for r in state['attempts'] if r['run_id'] in ids]
         if {r['run_id'] for r in removed}!=ids: raise ValueError('An attempt is no longer available.')
         jobs=sorted({r.get('evaluation_id') for r in removed if r.get('evaluation_id')})
+        if any(repair_runs.dependencies(root,jid) for jid in jobs):raise ValueError('This original has linked repairs. Clear the linked repairs first.')
         stamp=dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
         backup=root/'backups'/('reset-attempts-'+stamp);backup.mkdir(parents=True)
         index=root/'results/results.jsonl'; data=index.read_bytes()

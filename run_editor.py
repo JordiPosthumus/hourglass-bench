@@ -112,7 +112,7 @@ def copy_setup(root,source,manifest):
     import hardware_records
     prior=snapshot(root,source['id'])
     if prior:
-        save(root,manifest,{'values':dict(prior['values']),'applies_from':'run_start','reason':'Copied setup from run '+source['id']})
+        save(root,manifest,{'values':display_values(root,source),'applies_from':'run_start','reason':'Copied setup from run '+source['id']})
     previous=settings_records.records(root,source['id'])
     if previous:
         settings={}

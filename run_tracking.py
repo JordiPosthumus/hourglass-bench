@@ -21,6 +21,9 @@ def timestamp(row):
 
 
 def raw_attempts(manifest, rows, manifests=()):
+    if manifest.get('repair'):
+        import repair_runs
+        return repair_runs.composite_rows(manifest,rows)
     own=[r for r in rows if r.get('evaluation_id')==manifest['id']]
     if not manifest.get('legacy_time_match'):return own
     if 'legacy_run_ids' in manifest:

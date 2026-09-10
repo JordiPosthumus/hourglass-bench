@@ -12,7 +12,8 @@ def rules_label(report):
     policy=report.get('scoring') or 'unknown scoring'
     limit=report.get('execution',{}).get('question_timeout_s')
     deadline=f'{limit:g}s/question' if isinstance(limit,(int,float)) and limit>0 else ('900s/question' if report.get('question_timeout_policy')=='question-900s-auto-advance-v1' else 'legacy question limits' if not report.get('question_timeout_policy') else str(report['question_timeout_policy']))
-    return f'v{version} · {policy} · {deadline}'
+    caveat=' · ⚠ '+', '.join(c['label'] for c in report.get('caveats',[])) if report.get('caveats') else ''
+    return f'v{version} · {policy} · {deadline}'+caveat
 
 
 def auc(curve, final=False, window_s=3600):
@@ -94,6 +95,7 @@ def progress_chart(reports,scope='same',legend=True):
             detail=f'{r["weighted_points"]:.2f}{star} points · {r.get("raw_correct",0)} correct · {r.get("state","unknown")}'
             out.append(f'<path d="M{xx} {yy-5}h22" stroke="{color}" stroke-width="3"{dash}/><text x="{xx+30}" y="{yy}" font-size="12" font-weight="600"><title>{esc(name)}</title>{esc(short)}</text><text x="{xx+30}" y="{yy+18}" font-size="11" fill="#71827a">{esc(detail)}</text><text x="{xx+30}" y="{yy+34}" font-size="10" fill="#71827a"><title>{esc(r.get("hardware",{}).get("label","Hardware not recorded"))} · {esc(rules_label(r))}</title>{esc(short_meta)}</text>')
     out.append(f'<text x="40" y="{height-27}" font-size="11" fill="#71827a">Each step marks the score after a final submission. AUC is the area under this exact step graph.</text>')
+    if any(r.get('caveats') for r in reports):out.append(f'<text x="40" y="{height-28}" font-size="11" fill="#986810">⚠ Includes runs with diagnostic exposure; scores retained, timing impact unknown. See run caveats.</text>')
     if any(r.get('clock_adjustment_seconds') for r in reports):out.append(f'<text x="40" y="{height-10}" font-size="10" fill="#71827a">*Includes a disclosed clock adjustment.</text>')
     out.append('</g></svg>');return ''.join(out)
 

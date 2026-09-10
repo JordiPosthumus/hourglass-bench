@@ -106,6 +106,7 @@ def evaluations(root, rows):
         expected = Counter({t['task']: t['repeat'] for t in m['expected']})
         actual = Counter(r.get('task') for r in attempts)
         reasons = []
+        if m.get('repair'):reasons.append('Reconstructed hours are excluded from answer-accuracy calibration.')
         if m.get("results_reset"):reasons.append("Selected results were reset; use a fresh evaluation.")
         if scoring_policy.is_net(m.get('scoring_policy')) and any(not scoring_policy.final_answer(r) for r in attempts):
             reasons.append('Neutral outcomes are excluded from answer-accuracy calibration.')

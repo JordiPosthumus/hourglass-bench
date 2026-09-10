@@ -164,3 +164,7 @@ Hardware comparison groups are editable for any installation; original labels, m
 ## Readable configurations and complete history (2.6.1)
 
 Names use compact hardware/server-recipe/model/quantization components, are editable and resettable, and persist across repeated runs of the same configuration. New-run review requires missing identity details. All historical runs remain selectable across bank versions. Completed equivalent repeats can be averaged or expanded to individual measurements. See [run identity and comparison details](docs/run-identity.md).
+
+### Manual repairs
+
+Review caveats and manually replace affected attempts while retaining the original run. The repair credits the selected attempts’ recorded time, then continues the original question order within the same one-hour budget. [Read the repair workflow](docs/manual-repairs.md).

@@ -21,6 +21,7 @@ import run_editor
 import endpoint_hardware
 import hardware_groups
 import hardware_records
+import repair_runs
 import attempt_reset
 import hour_score
 import scoring_policy
@@ -177,11 +178,12 @@ def resume_plan(job, manifest, rows):
             'version_warning':f"This run began on v{manifest['benchmark_version']}; continuing on v{hourglass.BENCHMARK_VERSION} mixes versions and is excluded from calibration." if mixed else None}
 
 def public_job(job, rows=None):
-    result={k:job.get(k) for k in ('id','label','model','results_reset','scoring_policy','tasks','repeat','state','rc','created','started','ended','current_task','completed_tasks','total_tasks','error','stopped_after','resume_count','stop_after_wrong','stop_requested','stop_reason','active_intervals','hour_timing_unknown','timing_recoveries','question_timeout_s','question_timeout_policy','question_elapsed_s','question_deadline_at')}
+    result={k:job.get(k) for k in ('id','label','model','repair','results_reset','scoring_policy','tasks','repeat','state','rc','created','started','ended','current_task','completed_tasks','total_tasks','error','stopped_after','resume_count','stop_after_wrong','stop_requested','stop_reason','active_intervals','hour_timing_unknown','timing_recoveries','question_timeout_s','question_timeout_policy','question_elapsed_s','question_deadline_at')}
     if rows is not None:
         manifest=read_json(ROOT/'evaluations'/(job['id']+'.json'))
         if manifest:
             raw=run_tracking.raw_attempts(manifest,rows)
+            result['caveats']=attempt_annotations.summary(raw,job['id'])+([repair_runs.CAVEAT] if job.get('repair') else [])
             result['progress']=run_tracking.progress(manifest,raw,job,time.time())
             result['expected']=score_weights.enrich(ROOT,manifest['expected'])
             result['hour_score']=hour_score.score(job,rows,result['expected'])
@@ -204,6 +206,8 @@ def state():
             if jid not in settings_cache:settings_cache[jid]=settings_records.records(ROOT,jid)
             row['user_settings']=settings_cache[jid]
     with condition:
+        for job in [*running,*queue,*done]:
+            if job.get('repair'):rows.extend(r for r in repair_runs.composite_rows(job,rows) if r.get('repair_inherited') and not any(x.get('evaluation_id')==job['id'] and x.get('run_id')==r.get('run_id') for x in rows))
         jobs={'running':[public_job(j,rows) for j in running], 'pending':[public_job(j,rows) for j in queue], 'done':[public_job(j,rows) for j in done]}
     return {'app':'Hourglass Bench','version':2,'tasks':task_catalog(),'models':model_names(),
             'model_configs':doc.get('models',[]),'models_json':json.dumps(doc,indent=2),'models_revision':models_revision,'model_library_available':True,
@@ -271,6 +275,16 @@ def stop_job(body):
             question_deadline.terminate_group(proc)
         return {'ok':True,'job':job['id']}
 
+def start_repair(body):
+    with condition, calibration.LOCK:
+        if shutting_down:raise ValueError('Restart the console before starting a repair.')
+        if running or queue:raise ValueError('Wait for active and queued runs to finish. Each repair starts manually after you change models.')
+        source=saved_manifest(body.get('job'))
+        job=repair_runs.create(ROOT,source,result_rows(),body,hourglass.BENCHMARK_VERSION)
+        run_editor.copy_setup(ROOT,source,job)
+        queue.append(job);condition.notify_all()
+        return job
+
 def reset_attempts(body):
     with condition, calibration.LOCK:
         if running or queue: raise ValueError('Wait until active and queued runs finish before resetting results.')
@@ -289,7 +303,8 @@ def clear_job(body):
         if running:raise ValueError('Wait for active model work to finish before clearing history.')
         if any(j['id']==jid for j in queue):raise ValueError('Remove this run from the queue before clearing it.')
         rows=result_rows();manifests=[read_json(p,{}) for p in (ROOT/'evaluations').glob('*.json')]
-        removed=run_tracking.raw_attempts(manifest,rows,manifests)
+        if repair_runs.dependencies(ROOT,jid):raise ValueError('This original has linked repairs. Clear the linked repairs first.')
+        removed=[r for r in run_tracking.raw_attempts(manifest,rows,manifests) if not r.get('repair_inherited')]
         ids={r['run_id'] for r in removed if r.get('run_id')}
         stamp=time.strftime('%Y%m%dT%H%M%SZ',time.gmtime())+'-'+uuid.uuid4().hex[:6]
         backup=ROOT/'backups'/('cleared-run-'+stamp+'-'+jid);backup.mkdir(parents=True)
@@ -599,7 +614,7 @@ class H(BaseHTTPRequestHandler):
             with condition:self._json(model_scale.report(ROOT,result_rows(),[*queue,*running,*done]))
             return
         if u.path=='/api/calibration':self._json(calibration.report(ROOT,result_rows()));return
-        if u.path=='/api/health':self._json({'app':'Hourglass Bench','version':2,'benchmark_version':hourglass.BENCHMARK_VERSION,'shutdown_api':1,'workspace_key':workspace_key(),'controller_instance':controller_instance,'shutting_down':shutting_down});return
+        if u.path=='/api/health':self._json({'app':'Hourglass Bench','version':2,'benchmark_version':hourglass.BENCHMARK_VERSION,'shutdown_api':1,'repair_policy':repair_runs.POLICY,'workspace_key':workspace_key(),'controller_instance':controller_instance,'shutting_down':shutting_down});return
         if u.path in ('/api/log','/api/log/full'):
             jid=q.get('job',[''])[0]
             if not jid.isalnum():self._json({'error':'Invalid job'},400);return
@@ -616,6 +631,11 @@ class H(BaseHTTPRequestHandler):
             tid=q.get('id',[''])[0]
             if tid not in valid_tasks():self._json({'error':'Unknown test'},404);return
             self._json(public_task(tid));return
+        if u.path=='/api/repair-run':
+            try:
+                with condition:self._json(repair_runs.plan(ROOT,saved_manifest(q.get('job',[''])[0]),result_rows(),json.loads(q['tasks'][0]) if 'tasks' in q else None))
+            except ValueError as exc:self._json({'error':str(exc)},400)
+            return
         if u.path=='/api/attempt-reset':
             self._json(attempt_reset.snapshot(ROOT));return
         if u.path=='/api/file':
@@ -674,6 +694,7 @@ class H(BaseHTTPRequestHandler):
                 self._json({'ok':True,'record':record});return
             if route=='/api/run-settings':self._json({'ok':True,'record':record_settings(b)});return
             if route=='/api/stop':self._json(stop_job(b));return
+            if route=='/api/repair-run':self._json({'ok':True,'job':start_repair(b)['id']});return
             if route=='/api/attempt-reset':self._json(reset_attempts(b));return
             if route=='/api/clear-run':self._json(clear_job(b));return
             if route=='/api/resume':

@@ -2,6 +2,7 @@
 import datetime as dt
 import json
 import time
+import repair_runs
 import score_weights
 import scoring_policy
 
@@ -14,6 +15,7 @@ def score(job, rows, expected=(), now=None):
     expected = expected or job.get('expected', [])
     tids = set(job.get('tasks') or job.get('order') or [t['task'] for t in expected])
     vision = {t['task']: bool(t.get('vision')) for t in expected}
+    if job.get('repair') and not job.get('_repair_rows_materialized'):rows=repair_runs.composite_rows(job,rows)
     raw = [r for r in rows if r.get('evaluation_id') == job.get('id') and r.get('task') in tids]
     intervals = job.get('active_intervals')
     timing_known = not job.get('hour_timing_unknown') and (not job.get('resume_count') or bool(intervals))
@@ -25,6 +27,7 @@ def score(job, rows, expected=(), now=None):
         return sum(max(0, min(ts, part.get('end') or ts) - part['start']) for part in intervals)
 
     elapsed = active_at(job.get('ended') or now) if timing_known else job.get('progress', {}).get('elapsed_s', 0)
+    elapsed += job.get('repair',{}).get('base_elapsed_s',0) if timing_known else 0
     within, after, errors, unknown = [], set(), 0, 0
     timeouts = set()
     for r in raw:
@@ -35,10 +38,11 @@ def score(job, rows, expected=(), now=None):
         except (KeyError, TypeError, ValueError):
             unknown += 1
             continue
-        if not intervals or ts < intervals[0]['start']:
+        if not r.get('repair_inherited') and (not intervals or ts < intervals[0]['start']):
             unknown += 1
             continue
-        if active_at(ts) > WINDOW_S:
+        row_elapsed=repair_runs.elapsed_at(job,r) if job.get('repair') else active_at(ts)
+        if row_elapsed > WINDOW_S:
             if r.get('status') == 'completed':
                 after.add(r['task'])
             continue
@@ -79,7 +83,8 @@ def score(job, rows, expected=(), now=None):
             'completed_questions': len(completed), 'incorrect_questions': len(wrong),
             'total_questions': len(tids), 'after_deadline_questions': len(after), 'errors': errors,
             'elapsed_s': elapsed, 'remaining_s': max(0, WINDOW_S - elapsed), 'state': state,
-            'timing_note': 'Selected question results were reset; rerun them with a fresh clock. The original hourly score is withheld.' if job.get('results_reset') else 'Recorded completion timestamps on active wall clock, including thinking, tools and retries.' if available else 'Missing completion timestamps or historical pause intervals; hourly score withheld.'}
+            'repair_policy':job.get('repair',{}).get('policy'),
+            'timing_note': 'Selected question results were reset; rerun them with a fresh clock. The original hourly score is withheld.' if job.get('results_reset') else repair_runs.NOTE if job.get('repair') and available else 'Recorded completion timestamps on active wall clock, including thinking, tools and retries.' if available else 'Missing completion timestamps or historical pause intervals; hourly score withheld.'}
 
 
 def leaderboard(root, rows):

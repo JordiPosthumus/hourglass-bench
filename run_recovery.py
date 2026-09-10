@@ -45,7 +45,7 @@ def recover_receipt(root, manifest):
         recovered=copy.deepcopy(manifest)
         recovered.setdefault('question_elapsed_s',{})[context['task']]=context.get('elapsed_before_s',0)+duration
         recovered.update(state='stopped',ended=ended,active_started=None,active_intervals=intervals,
-                         hour_timing_unknown=False,elapsed_s=sum(p['end']-p['start'] for p in intervals),
+                         hour_timing_unknown=False,elapsed_s=manifest.get('repair',{}).get('base_elapsed_s',0)+sum(p['end']-p['start'] for p in intervals),
                          current_task=context['task'],error=None,rc=130,stop_requested=False,
                          stop_reason='controller_interrupted',completed_tasks=len({r['task'] for r in rows if r.get('status')=='completed'}))
         evidence={'version':'worker-receipt-recovery-v1','task':context['task'],'worker_ended_at':ended,
@@ -122,7 +122,7 @@ def recover(root, manifest):
         question_elapsed[attempt['task']] = previous_question_seconds + charged
         recovered.update(state='stopped', ended=ended, active_started=None,
                          active_intervals=intervals, hour_timing_unknown=False,
-                         elapsed_s=sum(p['end']-p['start'] for p in intervals),
+                         elapsed_s=manifest.get('repair',{}).get('base_elapsed_s',0)+sum(p['end']-p['start'] for p in intervals),
                          current_task=attempt['task'], error=None, rc=130,
                          stop_reason='controller_interrupted', stop_requested=False,
                          completed_tasks=len({r['task'] for r in rows if r.get('status') == 'completed'}))
