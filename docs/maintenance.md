@@ -12,7 +12,7 @@ This guide is for future maintainers and agents. Read the repository's working a
 6. Record the inference hardware. Start a new evaluation after changing model settings. Resume intentionally rejects changed model-config hashes and question content.
 7. Use the same bank, order, repeat policy, scoring version and relevant execution settings for comparisons. Preserve original results when runs are interrupted.
 
-The normal launcher is `./start-hourglass.sh`. `HOURGLASS_PORT` chooses a loopback UI port; the report helper uses UI port + 20. Identify the exact process and checkout before restarting anything. Do not kill unrelated services by port or process name.
+The normal launcher is `./start-hourglass.sh`. `HOURGLASS_PORT` chooses a loopback UI port; reports use the same listener under `/scores/`. Identify the exact process and checkout before restarting anything. Do not kill unrelated services by port or process name.
 
 ## Scoring and execution boundaries
 
@@ -24,7 +24,7 @@ The native adapter has no turn-count cap. Do not restore a diagnostic `maxTurns`
 
 ## Hardware and machine-specific charts
 
-Charts combine only the same inference machine, question-bank/order/weight fingerprint, timing policy and benchmark version. A selected run is compared with the latest eligible run of each other model. Each line ends at its actual elapsed time. Separate machines receive separate comparisons, including two machines with identical chip names.
+The UI offers all historical runs, matching-bank comparisons and a same-hardware filter. Compatible comparisons check frozen bank, order, weights, repeats and recorded policies; version labels do not establish equivalent conditions by themselves. Each line ends at its actual elapsed time. Use the hardware filter when comparing machines under the same conditions, and inspect the individual records. See [run identity](run-identity.md).
 
 For direct loopback inference, hardware is queried locally and frozen at evaluation creation. The private `.machine-id` supplies a stable random identity; public reports contain its hash, chip, memory, CPU and available GPU details, without hostname or serial number. Keep this identity stable on one physical machine and never copy it to another physical machine.
 
@@ -49,11 +49,11 @@ Unknown hardware is isolated per evaluation rather than combined. Changing a pro
 
 ## Reports and GitHub publication
 
-Use **Publish score** in Results to review an immutable snapshot of six files: `README.md`, `report.json`, `score.svg`, `comparison.json`, `comparison.svg`, and `quadrants.svg`. The combined SVG is the same-machine model chart; the individual SVG retains both weighted and raw-correct curves.
+Use **Record & publish score** to review the generated aggregate report and charts before uploading. Inspect the exact files listed in that preview; the selected comparison scope is recorded. The individual score chart retains weighted and raw-correct curves.
 
-Install and authenticate the GitHub CLI, choose an existing `owner/repository`, then explicitly click **Publish these files to GitHub**. The publisher uploads only the reviewed aggregate files, creates a commit under a unique `reports/` folder, and updates the default branch without force. It never pushes the local working directory. If a concurrent update prevents publication, refresh and retry. Restarting the helper invalidates existing preview tokens, so refresh afterward.
+Install and authenticate the GitHub CLI, choose an existing `owner/repository`, then explicitly click **Publish these files to GitHub**. The publisher uploads only the reviewed aggregate files, creates a commit under a unique `reports/` folder, and updates the default branch without force. It never pushes the local working directory. If a concurrent update prevents publication, refresh and retry. Restarting the controller invalidates existing preview tokens, so refresh afterward.
 
-Public exports exclude questions, options, answers, per-question IDs, raw traces, private paths, endpoints, credentials, hostnames and serial numbers. Hardware equality alone does not establish equivalent quantization, context, software or cache conditions. Configuration disclosure is currently marked as not supplied; do not claim fully controlled comparisons without equivalent settings.
+Public exports exclude questions, options, answers, per-question IDs, raw traces, private paths, endpoints, credentials, hostnames and serial numbers. Hardware equality alone does not establish equivalent quantization, context, software or cache conditions. Recorded configuration disclosure accompanies the export; unknown settings stay unknown. Inspect the reviewed output and do not claim controlled comparisons without equivalent settings.
 
 If an owner-authorized harness timing correction is necessary, preserve raw results, back up the manifest, record exact excluded intervals and a correction ledger, and avoid double credit. Do not fabricate pause history. A small footnote can accompany the report while exact adjustment amounts remain in JSON.
 
@@ -99,7 +99,7 @@ Before pushing, verify the remote, branch and complete staged diff. Push reviewe
 
 ## Shutdown and dependency upgrades
 
-On a requested stop, the wrapper terminates Pi and drains stdout/stderr with `communicate()` while awaiting exit. Waiting without draining can deadlock when an abort fills an output pipe. Interrupted output is retained in the benchmark workspace. The tests cover output larger than pipe capacity and native tool cancellation. The controller stops the benchmark process group, not the inference server.
+On a requested stop, the wrapper terminates Pi and drains stdout/stderr with `communicate()` while awaiting exit. Waiting without draining can deadlock when an abort fills an output pipe. Interrupted output is retained in the diagnostic artifacts outside the model workspace. The tests cover output larger than pipe capacity and native tool cancellation. The controller stops the benchmark process group, not the inference server.
 
 Before upgrading frozen Pi, read `docs/frozen-pi.md`. Use a separately versioned snapshot, update its license/provenance and hash inventory, verify tools, unlimited turn behavior and shutdown, and preserve a rollback to the previous working snapshot. Do not patch model limits to make compatibility tests pass.
 
@@ -107,7 +107,7 @@ Rollback only when the affected component is idle. Restore the exact backed-up f
 
 ## Main-page charts
 
-The selected run shows the same taller cumulative weighted-score graph as the publishing preview, refreshed every 30 seconds through the independent helper. The Results chart now uses four colored accuracy/token-efficiency quadrants: higher accuracy goes up, and fewer median output tokens per scored answer goes right. Dots are labeled by model; bubble area is proportional to scored answers per active minute. The legend retains machine, run, sample count, speed and status. Until the owner requests otherwise, both axes automatically fit the displayed data with padding, and each quadrant boundary bisects its displayed axis range. Accuracy stays within 0–100% and token counts stay nonnegative. The four colored regions are equal-sized; their numerical boundaries adapt to the data and are not pass/fail thresholds. All scored answers for a displayed run must have valid output-token counts. Missing counts are not treated as zero. Output tokens include reported reasoning, tool calls and final answers. Filtered question sets and tokenizers may differ, so this is descriptive rather than a controlled ranking.
+The selected run and publication preview use report rendering integrated into the main controller. The Results chart now uses four colored accuracy/token-efficiency quadrants: higher accuracy goes up, and fewer median output tokens per scored answer goes right. Dots are labeled by model; bubble area is proportional to scored answers per active minute. The legend retains machine, run, sample count, speed and status. Until the owner requests otherwise, both axes automatically fit the displayed data with padding, and each quadrant boundary bisects its displayed axis range. Accuracy stays within 0–100% and token counts stay nonnegative. The four colored regions are equal-sized; their numerical boundaries adapt to the data and are not pass/fail thresholds. All scored answers for a displayed run must have valid output-token counts. Missing counts are not treated as zero. Output tokens include reported reasoning, tool calls and final answers. Filtered question sets and tokenizers may differ, so this is descriptive rather than a controlled ranking.
 
 ## Recording hardware and exporting the bubble chart
 
@@ -148,3 +148,12 @@ The product and repository use the name Hourglass. Legacy launch and stop entry 
 Repository discovery tasks can be woven into the selected bank after every eight existing questions, with Games, Hourglass and DSG rotation and source subtotals. No private task content is included in this repository. See [methodology](methodology.md) and [private question versioning](private-question-bank.md).
 
 The start review displays the saved configuration once, without duplicate naming inputs. Missing descriptive fields do not block execution; genuine configuration/revision errors remain visible inside the dialog. Start errors leave the reviewed request intact for retry.
+
+
+## Hourglass 2.7.2 release
+
+The public README now leads with agent-assisted installation and creating a private bank. Follow [agent setup](agent-setup.md), [question authoring](question-authoring-recipe.md), [frozen Pi and credit](frozen-pi.md), and [server telemetry](telemetry.md). The brand directory contains a generated banner and a scalable SVG mark.
+
+The current-question API reconstructs the frozen per-run/per-repeat option layout and exposes declared images; it never returns answer keys or presentation seeds. The UI refreshes the exact preview as repeats advance. Temporary attachments for an older active controller remain ignored private data under `ui/run-previews/`.
+
+Passive telemetry adds MTPLX, oMLX, vLLM, SGLang, llama.cpp and explicitly selected DSG worker readers. LM Studio and legacy SSH logs retain support. Ollama's missing passive live counters are shown explicitly. Rate labels disclose request-average versus decode-window versus aggregate counter throughput. See the telemetry guide for version and attribution limitations. No inference parameters, frozen Pi files, option randomization policy or scoring rules changed in this patch.

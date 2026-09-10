@@ -12,7 +12,7 @@ blocked={'private-data-paths.json','telemetry-sources.json','run-detail-setups.j
 errors=[]
 for name in filter(None,files):
     p=Path(name)
-    if p.parts[0] in private or name in blocked or name.startswith('ui/question-assets/') or p.name.startswith('.env'):
+    if p.parts[0] in private or name in blocked or name.startswith(('ui/question-assets/','ui/run-previews/')) or p.name.startswith('.env'):
         errors.append('Private path tracked: '+name)
     if name.startswith('vendor/'):
         continue

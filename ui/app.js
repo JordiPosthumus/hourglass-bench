@@ -307,17 +307,27 @@ function questionReviewFlag(id){
 async function renderCurrentQuestion(){
   const job=S?.jobs.running[0],tid=job?.current_task;
   if(!tid){currentQuestionKey='';currentQuestionRequest++;$('currentQuestionStatus').textContent=job?'Waiting for the first question…':'No question is running right now.';$('currentQuestionContent').classList.add('hidden');return}
-  const key=job.id+':'+tid;if(key===currentQuestionKey)return;
+  const finishedRepeats=(S.results||[]).filter(r=>r.evaluation_id===job.id&&r.task===tid).map(r=>r.run).join(',');
+  const key=job.id+':'+tid+':'+finishedRepeats,changed=key!==currentQuestionKey;
   currentQuestionKey=key;const request=++currentQuestionRequest;
-  $('currentQuestionStatus').textContent=`${job.model} · ${tid} · Loading question…`;$('currentQuestionContent').classList.add('hidden');
+  if(changed){$('currentQuestionStatus').textContent=`${job.model} · ${tid} · Loading question…`;$('currentQuestionContent').classList.add('hidden')}
   try{
-    const t=await api('/api/task?id='+encodeURIComponent(tid));
-    const display=t.vision?await api('/question-assets/'+encodeURIComponent(tid)+'/display.json'):{};
+    let t=await api('/api/task?id='+encodeURIComponent(tid)+'&job='+encodeURIComponent(job.id));
+    if(!t.presentation){
+      // A staged UI can attach to an older active controller without a restart.
+      // Only an exact, sanitized run preview is accepted as a fallback.
+      if(job.repeat!==1)throw Error('Exact run options need an updated controller for repeated questions.');
+      const attached=await api('/run-previews/'+encodeURIComponent(job.id)+'/'+encodeURIComponent(tid)+'.json');
+      if(attached.presentation?.job!==job.id||attached.id!==tid||attached.presentation?.exact!==true)throw Error('Exact run options are not available yet.');
+      t=attached;
+    }
+    if(t.presentation?.job!==job.id||t.id!==tid||t.presentation?.exact!==true)throw Error('Exact run options are not available yet.');
+    const display=t.presentation.transport==='attachment'&&t.vision?await api('/question-assets/'+encodeURIComponent(tid)+'/display.json'):{images:t.images||[]};
     if(request!==currentQuestionRequest||S?.jobs.running[0]?.current_task!==tid||S?.jobs.running[0]?.id!==job.id)return;
-    $('currentQuestionStatus').textContent=`${job.model} · ${tid} · In progress`;
+    $('currentQuestionStatus').textContent=`${job.model} · ${tid} · Repeat ${t.presentation.repeat} · Model’s actual question and options`;
     $('currentQuestionTitle').textContent=t.title||tid;$('currentQuestionPrompt').textContent=t.prompt;
     $('currentQuestionImages').innerHTML=(display.images||[]).map(url=>`<img src="${esc(url)}" alt="Chart supplied with ${esc(tid)}" loading="lazy">`).join('');
-    const options=display.options||t.options.map(o=>typeof o==='string'?o:`${o.id} — ${o.text}`);
+    const options=t.options.map(o=>typeof o==='string'?o:`${o.id} — ${o.text}`);
     $('currentOptionsHeading').textContent=options.length?`Answer options (${options.length})`:'Answer format';
     $('currentQuestionOptions').innerHTML=options.length?options.map(o=>`<li>${esc(o)}</li>`).join(''):'<li>This question uses a numeric answer or a tool submission; follow the prompt above.</li>';
     $('currentQuestionFiles').innerHTML=(t.files.length?`<p class="help">Workspace files: ${esc(t.files.join(', '))}</p>`:'')+workspaceFilesHtml(t);$('currentQuestionContent').classList.remove('hidden');

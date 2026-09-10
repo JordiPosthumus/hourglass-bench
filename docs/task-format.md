@@ -2,6 +2,8 @@
 
 This repository ships only an optional hello-world setup demo, not a benchmark bank. Store each locally authored task at `tasks/<id>/task.json`. The task's `id` must match its directory. Never place answers or private verifier files in the model-visible `files` or `assets` fields.
 
+For a complete workflow and copy-paste agent instruction, use [the question-authoring recipe](question-authoring-recipe.md).
+
 The [JSON Schema](../schemas/task.schema.json) documents the multiple-choice and numeric task shapes without supplying any question content.
 
 ## Core fields
@@ -22,7 +24,7 @@ The [JSON Schema](../schemas/task.schema.json) documents the multiple-choice and
 
 ## Multiple choice
 
-Use `kind: "mcq"`, `mode: "option_id"`, an `options` array of distinct `{id, text}` objects, and an `answer` equal to the correct option ID. Use three-digit numeric option IDs. The agent submits its choice with `answer_question`. Optional `shuffle: true` changes display order deterministically while preserving option IDs.
+Use `kind: "mcq"`, `mode: "option_id"`, an `options` array of distinct `{id, text}` objects, and an `answer` equal to the correct option ID. Use three-digit numeric option IDs. The agent submits its choice with `answer_question`. New UI evaluations freeze a private per-run presentation seed and randomize both option positions and three-digit display IDs for each question/repeat. The grader retains the mapping back to the original answer. Resuming a run preserves its seed; separate runs can have different layouts. The legacy standalone `shuffle: true` behavior only reorders original IDs. Do not use a saved display ID as an authoring answer key.
 
 The answer key stays in the host task definition and is not included in the model's question prompt. You are responsible for authoring and validating a single correct answer.
 

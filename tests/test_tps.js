@@ -7,5 +7,7 @@ html=renderTpsPanel({samples:[decode,{...status,at:120}]},'running',120);assert.
 html=renderTpsPanel({samples:[decode,status],phase:'tool'},'running',102);assert.match(html,/Last measured/);assert.match(html,/Tool execution/);
 html=renderTpsPanel({samples:[decode,status]},'stopped',102);assert.match(html,/Last measured/);assert.match(html,/Unknown/);
 html=renderTpsPanel({error:'Live TPS is not connected for this endpoint.'},'running',102);assert.match(html,/Unavailable/);assert.match(html,/not connected/);
+html=renderTpsPanel({error:'Old controller missing source error',samples:[decode,{...status,request_count_at:102,error:null}]},'running',102);assert.match(html,/Live decode/);assert.doesNotMatch(html,/Old controller/);
+html=renderTpsPanel({samples:[{...status,at:120,request_count_at:120,observed_requests:0,server_phase:'idle'}]},'running',120);assert.match(html,/Connected/);assert.match(html,/No overlap observed/);
 html=renderTpsPanel({samples:[decode,{...status,attribution:'ambiguous',observed_requests:null}]},'running',102);assert.match(html,/Last measured/);assert.match(html,/Unknown/);
 console.log('TPS panel: live, overlap, stale log, tools, finished run, missing source and ambiguous attribution passed.');

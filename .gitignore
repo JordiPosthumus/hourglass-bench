@@ -50,3 +50,6 @@ run-detail-choices.jsonl
 /private-data-paths.json
 /potential-questions/
 /challenge_authoring/
+
+# Sanitized previews are still private question content.
+/ui/run-previews/

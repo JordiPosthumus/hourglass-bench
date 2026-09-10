@@ -134,14 +134,9 @@ def base_ordered_tasks(catalog, tids):
 
 def public_task(tid):
     """Question fields plus explicitly opted-in preview inputs; no host reads."""
+    import question_preview
     task=read_json(TASKS/tid/'task.json',{})
-    files=task.get('files') or {}
-    allowed=task.get('public_preview_files') or []
-    if not isinstance(allowed,list):allowed=[]
-    public_files={name:files[name] for name in allowed if isinstance(name,str) and name in files and isinstance(files[name],str)}
-    return {'id':tid,'title':task.get('title',tid),'prompt':task.get('prompt',''),
-            'options':task.get('options') or task.get('choices') or [],
-            'files':list(files),'public_files':public_files,'vision':hourglass.requires_vision(task)}
+    return {**question_preview.public_fields(task),'images':question_preview.images(task)}
 
 
 def valid_tasks(): return [t['id'] for t in task_catalog()]
@@ -637,8 +632,26 @@ class H(BaseHTTPRequestHandler):
             start=max(text.rfind('\nRUN · Hourglass'),text.rfind('\nRESUME · Hourglass'))
             if start>=0:text=text[start:]
             self._text(text[-50000:]);return
+        if u.path=='/api/task-asset':
+            import question_preview
+            try:
+                tid=q.get('id',[''])[0]
+                manifest=saved_manifest(q['job'][0]) if q.get('job') else None
+                if not manifest and tid not in valid_tasks():raise ValueError('Unknown question.')
+                path=question_preview.image_file(ROOT,tid,q.get('file',[''])[0],manifest)
+                self.send_bytes(path.read_bytes(),ctype=mimetypes.guess_type(path.name)[0] or 'application/octet-stream')
+            except (OSError,ValueError) as exc:self._json({'error':str(exc)},404)
+            return
         if u.path=='/api/task':
             tid=q.get('id',[''])[0]
+            if q.get('job'):
+                import question_preview
+                try:
+                    manifest=saved_manifest(q['job'][0])
+                    repeat=int(q['repeat'][0]) if q.get('repeat') else question_preview.active_repeat(ROOT,manifest,tid)
+                    self._json(question_preview.for_run(ROOT,manifest,tid,repeat))
+                except (OSError,ValueError) as exc:self._json({'error':str(exc)},400)
+                return
             if tid not in valid_tasks():self._json({'error':'Unknown test'},404);return
             self._json(public_task(tid));return
         if u.path=='/api/repair-run':

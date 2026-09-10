@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-labelledby="title">
+<title id="title">Hourglass</title>
+<rect width="64" height="64" rx="14" fill="#fbf8ee"/>
+<path d="M19 10h26M19 54h26M23 11v7c0 6 3 9 9 14-6 5-9 8-9 14v7M41 11v7c0 6-3 9-9 14 6 5 9 8 9 14v7" stroke="#173e2d" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M25 19h14c-1 4-3 6-7 9-4-3-6-5-7-9ZM25 50l7-8 7 8H25Z" fill="#c58a32"/>
+<path d="M32 33v7" stroke="#c58a32" stroke-width="2" stroke-linecap="round"/>
+</svg>
