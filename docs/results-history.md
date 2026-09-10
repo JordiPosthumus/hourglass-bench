@@ -1,6 +1,6 @@
 # Recording model improvements
 
-I use private questions for my Hourglass Bench evaluations. Public reports disclose aggregate measurements and explicitly recorded experiment labels, not question text, answers, images or model traces. Scores from different private banks are not interchangeable.
+I use private questions for my Hourglass evaluations. Public reports disclose aggregate measurements and explicitly recorded experiment labels, not question text, answers, images or model traces. Scores from different private banks are not interchangeable.
 
 ## Record a run
 

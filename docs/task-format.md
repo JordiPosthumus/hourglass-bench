@@ -13,6 +13,7 @@ The [JSON Schema](../schemas/task.schema.json) documents the multiple-choice and
 | `title` | Human-readable title you supply |
 | `prompt` | Your actual question text |
 | `section`, `family` | Labels for ordering and coverage |
+| `discovery_domain` | For `section: "repository_discovery"`, use `games`, `hourglass` or `dsg` to rotate sources and report subtotals |
 | `tier` | Numeric authored difficulty; not an empirical difficulty claim |
 | `repeat` | Default repeats; use 1 for the standard timed evaluation |
 | `max_turns` | Historical metadata only; ignored by the current harness |

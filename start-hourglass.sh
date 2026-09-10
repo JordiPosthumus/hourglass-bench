@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Launch only the local benchmark UI. Existing model server settings are untouched.
-# HOURGLASS_PORT=9000 ./start-hourglassbench.sh selects an explicit port.
+# HOURGLASS_PORT=9000 ./start-hourglass.sh selects an explicit port.
 set -euo pipefail
 cd "$(dirname "$0")"
 export NODE_ID="${NODE_ID:-$(hostname -s)}"

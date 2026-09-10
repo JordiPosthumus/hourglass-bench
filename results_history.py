@@ -75,7 +75,7 @@ def catalog_files(existing,report,token):
     # Republishing one run updates its catalog entry; immutable snapshot folders remain.
     entries=[e for e in existing if not report.get('run_key') or e.get('run_key')!=report['run_key']]+[entry]
     entries.sort(key=lambda r:(r.get('run_date') or '',r.get('run_key') or ''))
-    lines=['# Results','',"I use private questions for my Hourglass Bench evaluations. Published reports contain aggregate scores and deliberately recorded configuration labels; questions, answers and traces remain private.",'','Each row is a dated run. Improvement charts group a model family and keep hardware, bank and execution protocols separate. Partial runs are shown separately and are not extrapolated. Changes are observations, not proof that one configuration caused an improvement.','']
+    lines=['# Results','',"I use private questions for my Hourglass evaluations. Published reports contain aggregate scores and deliberately recorded configuration labels; questions, answers and traces remain private.",'','Each row is a dated run. Improvement charts group a model family and keep hardware, bank and execution protocols separate. Partial runs are shown separately and are not extrapolated. Changes are observations, not proof that one configuration caused an improvement.','']
     def cell(v):return html.escape(str(v)).replace('|','&#124;').replace('\n',' ')
     families={}
     for r in entries:families.setdefault(family(r),[]).append(r)

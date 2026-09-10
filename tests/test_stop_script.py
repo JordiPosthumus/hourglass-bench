@@ -10,6 +10,24 @@ from unittest.mock import patch
 
 
 class StopScriptTests(unittest.TestCase):
+    def test_shutdown_connection_reset_still_waits_for_listener_exit(self):
+        code=Path('stop-hourglass-bench.sh').read_text().split("<<'PY'\n",1)[1].rsplit('\nPY',1)[0]
+        root=Path.cwd();requested=False;reset=False
+        def run(args, **kwargs):
+            return SimpleNamespace(stdout='' if reset or '4554' in ' '.join(args) else '123\n')
+        def output(args, **kwargs):
+            return 'python3 launch.py --no-open' if args[0]=='/bin/ps' else 'p123\nn'+str(root)+'\n'
+        def urlopen(request, **kwargs):
+            nonlocal requested,reset
+            path=request.full_url.split(':4534')[1]
+            if path=='/api/shutdown':requested=True;data={'ok':True}
+            elif requested:reset=True;raise ConnectionResetError('Controller closed during shutdown')
+            else:data={'app':'Hourglass','shutdown_api':1,'workspace_key':hashlib.sha256(str(root.resolve()).encode()).hexdigest(),'controller_instance':'instance'}
+            return io.StringIO(json.dumps(data))
+        with patch('sys.argv',['stop']),patch.dict('os.environ',{'HOURGLASS_PORT':'4534','HOURGLASS_PORT':'4534'}),patch('subprocess.run',side_effect=run),patch('subprocess.check_output',side_effect=output),patch('urllib.request.urlopen',side_effect=urlopen),patch('os.kill') as kill,patch('time.sleep'),contextlib.redirect_stdout(io.StringIO()):
+            exec(compile(code,'stop-script','exec'),{})
+        self.assertTrue(reset);kill.assert_not_called()
+
     def test_modern_shutdown_uses_instance_and_never_signals_ui(self):
         code=Path('stop-hourglass-bench.sh').read_text().split("<<'PY'\n",1)[1].rsplit('\nPY',1)[0]
         root=Path.cwd();requested=False;events=[]

@@ -59,7 +59,7 @@ class ModelPicker {
     ]);
   }
   open(source, copy = null) {
-    if (!this.getState()?.model_library_available) { this.toast('Restart the Hourglass Bench console from your Terminal to enable model discovery, then refresh this page.'); return; }
+    if (!this.getState()?.model_library_available) { this.toast('Restart the Hourglass console from your Terminal to enable model discovery, then refresh this page.'); return; }
     if (!this.canOpen()) { this.toast('Save or discard your JSON edits before adding a model.'); return; }
     const {$, esc:e} = this, revision = this.getState()?.models_revision;
     const fields = ['name','model','base_url','hardware','max_tokens','context_window'];

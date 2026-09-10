@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hourglass Bench local console. Stdlib HTTP, one worker, explicit model runs only."""
+"""Hourglass local console. Stdlib HTTP, one worker, explicit model runs only."""
 import hashlib
 import live_tps
 import question_deadline
@@ -69,13 +69,15 @@ def task_catalog():
                       'task_bundle_sha':task_identity.identity(p.parent),'family':t.get('family') or section,'tier':t.get('tier',1),
                       'summary':question_context.summary(summaries,{'task':p.parent.name,'task_sha':(hourglass.sha(p) or '')[:16]}),
                       'order_tier':run_tracking.difficulty_tier(t),'tier_estimated':t.get('tier') is None and run_tracking.difficulty_tier(t) is not None,
-                      'level':t.get('level'),'challenge_rank':t.get('challenge_rank'),'title':t.get('title') or p.parent.name,'repeat':t.get('repeat',3),
+                      'discovery_domain':t.get('discovery_domain'),'level':t.get('level'),'challenge_rank':t.get('challenge_rank'),'title':t.get('title') or p.parent.name,'repeat':t.get('repeat',3),
                       'mode':t.get('mode'),'options':len(t.get('options') or t.get('choices') or []),
                       'vision':hourglass.requires_vision(t),'issues':issues,'task_type':t.get('provenance',{}).get('task_type'),
                       'timeout_s':None,'max_turns':t.get('max_turns',30)})
     return [next(t for t in tasks if t['id']==tid) for tid in ordered_tasks(tasks,[t['id'] for t in tasks])]
 
-ORDER_POLICY = 'easy_medium_hard_with_every_fifth_challenge_v2'
+import repository_discovery
+
+ORDER_POLICY = repository_discovery.ORDER_POLICY
 
 
 def difficulty_band(task):
@@ -88,6 +90,14 @@ def difficulty_band(task):
 
 
 def ordered_tasks(catalog, tids):
+    lookup={t['id']:t for t in catalog}
+    selected=list(dict.fromkeys(tids))
+    cases=[lookup[tid] for tid in selected if lookup[tid].get('section')==repository_discovery.SECTION]
+    base=[tid for tid in selected if lookup[tid].get('section')!=repository_discovery.SECTION]
+    return repository_discovery.weave(base_ordered_tasks(catalog,base),cases)
+
+
+def base_ordered_tasks(catalog, tids):
     lookup={t['id']:t for t in catalog}; buckets={}
     selected=list(dict.fromkeys(tids))
     challenges=sorted((tid for tid in selected if lookup[tid].get('section')=='challenge'),
@@ -209,7 +219,7 @@ def state():
         for job in [*running,*queue,*done]:
             if job.get('repair'):rows.extend(r for r in repair_runs.composite_rows(job,rows) if r.get('repair_inherited') and not any(x.get('evaluation_id')==job['id'] and x.get('run_id')==r.get('run_id') for x in rows))
         jobs={'running':[public_job(j,rows) for j in running], 'pending':[public_job(j,rows) for j in queue], 'done':[public_job(j,rows) for j in done]}
-    return {'app':'Hourglass Bench','version':2,'tasks':task_catalog(),'models':model_names(),
+    return {'app':'Hourglass','version':2,'tasks':task_catalog(),'models':model_names(),
             'model_configs':doc.get('models',[]),'models_json':json.dumps(doc,indent=2),'models_revision':models_revision,'model_library_available':True,
             'model_errors':hourglass.validate_models(doc),'results':rows,
             'endpoint_hardware':endpoint_hardware.snapshot(ROOT,doc.get('models',[])),
@@ -387,7 +397,7 @@ def worker():
             config_path=calibration.frozen_config_path(ROOT,manifest,current_config)
             expected={t['task']:t['repeat'] for t in manifest['expected']}
             with (LOGS/f"job-{job['id']}.log").open('a') as log:
-                log.write(f"\n{'RESUME' if job.get('resume_count') else 'RUN'} · Hourglass Bench {hourglass.BENCHMARK_VERSION}\n");log.flush()
+                log.write(f"\n{'RESUME' if job.get('resume_count') else 'RUN'} · Hourglass {hourglass.BENCHMARK_VERSION}\n");log.flush()
                 wrong_streak=0;job['completed_tasks']=0
                 stop_limit=job.get('stop_after_wrong') or run_tracking.STOP_AFTER_WRONG
                 for tid in job['tasks']:
@@ -614,7 +624,7 @@ class H(BaseHTTPRequestHandler):
             with condition:self._json(model_scale.report(ROOT,result_rows(),[*queue,*running,*done]))
             return
         if u.path=='/api/calibration':self._json(calibration.report(ROOT,result_rows()));return
-        if u.path=='/api/health':self._json({'app':'Hourglass Bench','version':2,'benchmark_version':hourglass.BENCHMARK_VERSION,'shutdown_api':1,'repair_policy':repair_runs.POLICY,'workspace_key':workspace_key(),'controller_instance':controller_instance,'shutting_down':shutting_down});return
+        if u.path=='/api/health':self._json({'app':'Hourglass','version':2,'benchmark_version':hourglass.BENCHMARK_VERSION,'shutdown_api':1,'repair_policy':repair_runs.POLICY,'workspace_key':workspace_key(),'controller_instance':controller_instance,'shutting_down':shutting_down});return
         if u.path in ('/api/log','/api/log/full'):
             jid=q.get('job',[''])[0]
             if not jid.isalnum():self._json({'error':'Invalid job'},400);return
@@ -624,7 +634,7 @@ class H(BaseHTTPRequestHandler):
                 self.send_bytes(p.read_bytes(),ctype='text/plain; charset=utf-8');return
             text=p.read_text() if p.is_file() else 'Waiting to start…'
             # Show only the latest invocation; full history stays downloadable.
-            start=max(text.rfind('\nRUN · Hourglass Bench'),text.rfind('\nRESUME · Hourglass Bench'))
+            start=max(text.rfind('\nRUN · Hourglass'),text.rfind('\nRESUME · Hourglass'))
             if start>=0:text=text[start:]
             self._text(text[-50000:]);return
         if u.path=='/api/task':
@@ -766,6 +776,6 @@ def serve(server):
 def main():
     server=ThreadingHTTPServer(('127.0.0.1',PORT),H)
     start_worker()
-    print(f'Hourglass Bench → http://127.0.0.1:{PORT}',flush=True)
+    print(f'Hourglass → http://127.0.0.1:{PORT}',flush=True)
     serve(server)
 if __name__=='__main__':main()

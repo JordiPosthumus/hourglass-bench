@@ -88,7 +88,7 @@ def publish(repo,token,files):
         blob=gh(f'repos/{repo}/git/blobs',{'content':base64.b64encode(body.encode()).decode(),'encoding':'base64'})
         entries.append({'path':name,'mode':'100644','type':'blob','sha':blob['sha']})
     updated=gh(f'repos/{repo}/git/trees',{'base_tree':tree,'tree':entries})
-    commit=gh(f'repos/{repo}/git/commits',{'message':'Publish Hourglass Bench score','tree':updated['sha'],'parents':[head]})
+    commit=gh(f'repos/{repo}/git/commits',{'message':'Publish Hourglass score','tree':updated['sha'],'parents':[head]})
     # A non-forced ref update refuses concurrent branch changes.
     proc=subprocess.run(['gh','api',f'repos/{repo}/git/refs/heads/{branchpath}','--method','PATCH','--input','-'],input=json.dumps({'sha':commit['sha'],'force':False}),text=True,capture_output=True,timeout=60)
     if proc.returncode:raise ValueError('Branch update refused. Refresh the preview and retry.')

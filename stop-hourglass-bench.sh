@@ -40,8 +40,8 @@ try:
         print('The bench UI is already stopped.')
     else:
         health = request('/api/health')
-        if health.get('app') not in ('Hourglass Bench', 'JordiBench'):
-            raise RuntimeError('The listener did not identify itself as Hourglass Bench.')
+        if health.get('app') not in ('Hourglass', 'Hourglass Bench', 'JordiBench'):
+            raise RuntimeError('The listener did not identify itself as Hourglass.')
         if health.get('shutdown_api') == 1:
             expected = hashlib.sha256(str(root.resolve()).encode()).hexdigest()
             if health.get('workspace_key') != expected:
@@ -53,7 +53,7 @@ try:
             while listener(port, 'launch.py') == pid:
                 try:
                     current = request('/api/health')
-                except urllib.error.URLError:
+                except (urllib.error.URLError, ConnectionError):
                     current = None
                 if current and current.get('controller_instance') != instance:
                     raise RuntimeError('The UI changed during shutdown; leaving the replacement untouched.')

@@ -80,7 +80,7 @@ def build(root, job, rows, manifest):
     report['auc']['scoring_policy']=h['scoring_policy']
     star='*' if credits else ''
     svg=report_charts.progress_chart([report])
-    readme=f"# Hourglass Bench result\n\n![Score graph](score.svg)\n\nModel: {report['model'].replace(chr(10),' ')}\n\n**{h['weighted_points']:.2f} weighted points{star}**, {h['points']} correct. Status: **{h['state']}**.\n\nFixed difficulty weights: charts 1–10 → 1–2; games 1–5 → 1–2; math high school / undergraduate / graduate → 1 / 1.5 / 2. One award per question within 3,600 active seconds.\n\nBank fingerprint: `{report['bank_fingerprint']}`. Compare the same bank, order, repeat policy, model settings and hardware. Inference machine: {hardware['label']}. Model configuration disclosure has not been supplied.\n\n[Aggregate data](report.json)\n\nHardware source: {hardware.get('source','unknown')}.\n"
+    readme=f"# Hourglass result\n\n![Score graph](score.svg)\n\nModel: {report['model'].replace(chr(10),' ')}\n\n**{h['weighted_points']:.2f} weighted points{star}**, {h['points']} correct. Status: **{h['state']}**.\n\nFixed difficulty weights: charts 1–10 → 1–2; games 1–5 → 1–2; math high school / undergraduate / graduate → 1 / 1.5 / 2. One award per question within 3,600 active seconds.\n\nBank fingerprint: `{report['bank_fingerprint']}`. Compare the same bank, order, repeat policy, model settings and hardware. Inference machine: {hardware['label']}. Model configuration disclosure has not been supplied.\n\n[Aggregate data](report.json)\n\nHardware source: {hardware.get('source','unknown')}.\n"
     if report['caveats']:
         readme+='\n## Result caveats\n\n'+'\n\n'.join('**'+c['label']+'** ('+str(c['attempts'])+' attempt(s)): '+c['message'] for c in report['caveats'])+'\n'
     if scoring_policy.is_net(h['scoring_policy']):readme+=f"\nNet scoring: +1–2 for a correct question, −1 for an incorrect final submission, zero for unsupported vision, timeout or no final submission. Gross: {h['gross_points']}; penalties: {h['penalty_points']}; abstained: {h['abstained_questions']}. A correct repeat supersedes an earlier incorrect answer; penalties never accumulate for repeated wrong answers to one question.\n"
@@ -165,7 +165,7 @@ def ranking(reports, scope='same'):
     ranked=sorted(compatible_reports(reports,scope),key=lambda r:(-r['weighted_points'],r['model'],hardware_label(r),r.get('machine_key','')))
     width=1100;height=180+len(ranked)*86;maximum=max(1,max(abs(r['weighted_points']) for r in ranked))
     out=[f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}"><rect width="{width}" height="{height}" fill="#101722"/><g font-family="sans-serif" fill="#eaf0fa">',
-         '<text x="36" y="42" font-size="26">Hourglass Bench · score ranking</text>',
+         '<text x="36" y="42" font-size="26">Hourglass · score ranking</text>',
          f'<text x="36" y="70" font-size="14">{html.escape("All hardware" if scope=="all" else hardware_label(reports[0]))} · weighted points · higher is better</text>',
          '<text x="36" y="95" font-size="12" fill="#aebdd0">Selected run + latest matching run per model and machine. Partial and running scores are not extrapolated.</text>']
     for i,r in enumerate(ranked):

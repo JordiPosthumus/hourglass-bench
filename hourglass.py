@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hourglass Bench — a personal, contamination-free agentic benchmark.
+"""Hourglass — a personal, contamination-free agentic benchmark.
 
 Seeded-defect challenges built from your own private repos. Models are served
 locally (LM Studio / llama-server / MLX, all OpenAI-compatible) and driven
@@ -31,7 +31,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 TASKS, RESULTS, SANDBOX = ROOT / "tasks", ROOT / "results", ROOT / "sandboxes"
 REAL_HOME = str(Path.home())
-BENCHMARK_VERSION = "2.6.2"
+BENCHMARK_VERSION = "2.7.1"
 
 def requires_vision(task):
     return task.get("kind") == "chart-vqa" or bool(task.get("image") or task.get("assets"))
@@ -788,7 +788,7 @@ def cmd_leaderboard(_, rows=None, root=None, emit=True):
         lines.append(f"| {version} | {task} | {model} | {a['n']} | {a['solved']} | "
                      f"{a['skipped']} | {'not fully observed' if a['skipped'] else ('✓' if a['solved'] == a['n'] else '✗')} | {a['tamp']} | "
                      f"{med(a['times'])}s | {med(a['tok'])} | {', '.join(sorted(a['temperatures']))} |")
-    doc = "# Hourglass Bench leaderboard\n\n" + hour_score.leaderboard(root or ROOT,rows) + ("## Full-run attempt diagnostics\n\n"
+    doc = "# Hourglass leaderboard\n\n" + hour_score.leaderboard(root or ROOT,rows) + ("## Full-run attempt diagnostics\n\n"
            "Early-stop skips are policy-defined zeros, not observed incorrect answers. "
            "The all-repeats indicator is withheld when skips are present; it is not a statistical pass^k estimate.\n\n") + "\n".join(lines) + "\n"
     ((root or ROOT) / "leaderboard.md").write_text(doc)
@@ -797,7 +797,7 @@ def cmd_leaderboard(_, rows=None, root=None, emit=True):
 def cmd_frontier(_, rows=None, root=None, emit=True):
     rows = [r for r in (_rows() if rows is None else rows) if r.get("status") == "completed"]
     if not rows:
-        ((root or ROOT) / "frontier.md").write_text("# Hourglass Bench frontier\n\nNo completed, scored runs yet.\n")
+        ((root or ROOT) / "frontier.md").write_text("# Hourglass frontier\n\nNo completed, scored runs yet.\n")
         if emit: print("No completed, scored runs yet.")
         return
     per_model = {}
@@ -833,7 +833,7 @@ def cmd_frontier(_, rows=None, root=None, emit=True):
         tier_label = f"{s['tier_yield']:.2f}" if s["tier_yield"] is not None else "—"
         lines.append(f"| {m[0]} · {m[1]} | {s['acc']:.2f} | {s['med_t']:.0f}s | {s['tps']} | {s['thr']:.2f} | "
                      f"{tier_label} | {s['tamp']} | {'★' if s['frontier'] else ''} |")
-    doc = ("# Hourglass Bench frontier — speed × accuracy on my hardware\n\n"
+    doc = ("# Hourglass frontier — speed × accuracy on my hardware\n\n"
            "Pareto-optimal models (★) are non-dominated: no other model is both more accurate\n"
            "and faster (solved-tasks/hour). Your frontier is the answer to 'which model should run\nhere'.\n\n"
            "Tier-yield uses authored numeric tiers only; untiered questions still count in accuracy and timing.\n\n" + "\n".join(lines) + "\n")
@@ -1004,7 +1004,7 @@ def main():
             try:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
-                raise SystemExit("Another Hourglass Bench run is active. Wait for it to finish; single-stream execution is enforced.")
+                raise SystemExit("Another Hourglass run is active. Wait for it to finish; single-stream execution is enforced.")
             from run_guard import WorkerGuard
             with WorkerGuard(ROOT):
                 args.fn(args)

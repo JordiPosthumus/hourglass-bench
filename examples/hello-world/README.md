@@ -11,4 +11,4 @@ python3 scripts/install_demo.py
 
 Select `hello-world`, choose your local model, and use one repeat. A correct result confirms that the basic model/tool/verifier path works. Do not treat success on this demo as evidence of broader model capability.
 
-This example is the only task shipped with Hourglass Bench. Bring your own private question bank for actual evaluation.
+This example is the only task shipped with Hourglass. Bring your own private question bank for actual evaluation.

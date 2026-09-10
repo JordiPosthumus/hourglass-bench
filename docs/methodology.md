@@ -1,6 +1,6 @@
 # Method: waves of questions
 
-Hourglass Bench measures how much correct work an agent completes within one hour of active wall time. Questions arrive in a fixed sequence of difficulty waves, with subjects mixed throughout. The aim is to expose even an early portion of a run to different kinds of work and different difficulty levels.
+Hourglass measures how much correct work an agent completes within one hour of active wall time. Questions arrive in a fixed sequence of difficulty waves, with subjects mixed throughout. The aim is to expose even an early portion of a run to different kinds of work and different difficulty levels.
 
 Difficulty labels describe the authored bank. They are provisional, not measured probabilities of success. A question that takes a long time may reveal hard reasoning, inefficient verification, slow inference, or a tool problem; duration alone cannot distinguish them.
 
@@ -41,6 +41,14 @@ These blocks are a way to describe the cadence, not separate timed rounds. Chall
 Each reference challenge has distinct pilot and held-out input variants, twelve answer choices, and two reference solving methods. Pilot model work is inspected for ambiguity, shortcuts and mistakes in the question. The scored input is held out from those pilots. This provides evidence of solvability; it does not establish uniform difficulty or freedom from every possible shortcut.
 
 **Implementation scope:** the public harness supports regular difficulty waves, challenge insertion after every four regular questions, and two-point challenge weights for user-authored challenge tasks. The public repository ships only the optional hello-world setup demonstration. The reference questions, inputs, answers and pilot traces remain private.
+
+## Repository discovery
+
+Version 2.7 inserts a selected repository discovery case after every eight questions of the existing sequence. Cases rotate Games → Hourglass → DSG, ordered by stable question ID within each source. This preserves the previous sequence, including challenge placement relative to its regular questions. Remaining discovery cases follow when a selected subset runs out of base questions. In the 135-question private bank, they occupy positions 9, 18, …, 135.
+
+Each case receives its own supplied repository and history in a fresh workspace. Discovery cases are text-and-tools questions. Their authored difficulty remains uncalibrated; they earn the existing default one point when correct, with the usual incorrect-answer penalty. Games, Hourglass and DSG subtotals are included in the text score. Source-grounded answer verification does not establish empirical difficulty or agreement across independent solvers.
+
+The public repository includes the ordering and subtotal support, not these questions, repositories or answer keys. A changed bank/order fingerprint keeps prior scores separate. No persistent question-level cross-model difficulty ledger or automatic weight fitting is currently implemented.
 
 ## One clock across all waves
 

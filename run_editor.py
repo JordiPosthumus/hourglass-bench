@@ -186,8 +186,7 @@ def initial_identity(root,config):
 
 
 def required_identity(values):
+    """Validate optional display labels; execution settings are checked separately."""
     values=clean(values)
     if set(values)-set((*run_naming.IDENTITY_FIELDS,'run_name')):raise ValueError('Only naming fields are accepted here.')
-    missing=[FIELDS[k] for k in ('hardware','server_name','model_name','quantization') if not values.get(k) or values[k].casefold()=='xxx']
-    if missing:raise ValueError('Complete the configuration name before starting: '+', '.join(missing)+'.')
-    return values
+    return {key:value for key,value in values.items() if value and (key=='run_name' or value.casefold()!='xxx')}

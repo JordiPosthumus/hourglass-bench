@@ -69,6 +69,13 @@ def score(job, rows, expected=(), now=None):
         lanes[lane] = {'points': len({r['task'] for r in rs if r.get('solved')}) if available else None,
                        'weighted_points':(round(weighted({r['task'] for r in rs if r.get('solved')})-len(wrong & {r['task'] for r in rs}),6) if available else None) if net_policy else weighted({r['task'] for r in rs if r.get('solved')}),
                        'completed_questions': len({r['task'] for r in rs})}
+    discovery = {}
+    for domain in ('games', 'hourglass', 'dsg'):
+        group = {t['task'] for t in expected if t.get('section') == 'repository_discovery' and t.get('discovery_domain') == domain} & tids
+        if group:
+            discovery[domain] = {'points': len(correct & group) if available else None,
+                                 'weighted_points': round(weighted(correct & group) - (len(wrong & group) if net_policy else 0), 6) if available else None,
+                                 'completed_questions': len(completed & group), 'total_questions': len(group)}
     repeats={t['task']:t.get('repeat',1) for t in expected}
     all_finished=bool(tids) and all(tid in timeouts or set(range(1,repeats.get(tid,1)+1)).issubset({r.get('run',1) for r in within if r['task']==tid}) for tid in tids)
     final = available and (elapsed >= WINDOW_S or all_finished)
@@ -78,6 +85,7 @@ def score(job, rows, expected=(), now=None):
             'scoring_policy':job.get('scoring_policy') or scoring_policy.LEGACY,'gross_points':gross,'net_points':net if net_policy else None,
             'penalty_points':len(wrong) if net_policy else 0,'abstained_questions':len(abstained),'unsupported_questions':len(unsupported),
             'correct_tasks': sorted(correct) if available else [], 'breakdown': lanes,
+            'repository_discovery': discovery,
             'timeouts':len(timeouts), 'resolved_questions':len(completed | timeouts),
             'question_timeout_policy':job.get('question_timeout_policy'),
             'completed_questions': len(completed), 'incorrect_questions': len(wrong),
@@ -88,7 +96,7 @@ def score(job, rows, expected=(), now=None):
 
 
 def leaderboard(root, rows):
-    lines = ['## Hourglass Bench score · weighted points in one hour', '',
+    lines = ['## Hourglass score · weighted points in one hour', '',
              'Correct questions within 3,600 active seconds earn 1–2 points on fixed section difficulty scales. Raw correct counts remain visible. '
              'Scores are not extrapolated. Compare the same bank, order and repeat policy. '
              'Metric: hour-v1; execution versions remain unchanged.', '',

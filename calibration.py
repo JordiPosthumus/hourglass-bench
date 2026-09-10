@@ -47,6 +47,7 @@ def evaluation_manifest(root, job, version, config, legacy=False):
                          **({'task_bundle_sha':task_identity.identity(root/'tasks'/tid)} if not legacy else {}),
                          'vision': task.get('kind') == 'chart-vqa' or bool(task.get('image') or task.get('assets')),
                          'section':task.get('section'),'tier':task.get('tier'),'level':task.get('level'),
+                         **({'discovery_domain':task['discovery_domain']} if task.get('discovery_domain') else {}),
                          'weight':score_weights.weight(task),'weight_version':score_weights.VERSION,
                          'repeat': job['repeat'] if job['repeat'] is not None else task.get('repeat', 3)})
     if job.get('reviewed_task_bundles') is not None and job['reviewed_task_bundles']!={t['task']:t['task_bundle_sha'] for t in expected}:

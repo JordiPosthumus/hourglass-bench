@@ -74,6 +74,20 @@ def protected_profile(profile, roots, workdir, extra_files=()):
         lines.append(f'(allow file-read-metadata (literal "{quoted(parent)}"))')
     for name in ('.codex', '.agents', '.claude', '.pi', '.hermes', '.openclaw', '.lmstudio/server-logs', '.lmstudio/conversations', '.ollama/logs'):
         lines.append(f'(deny file-read* file-write* (subpath "{quoted(Path.home()/name)}"))')
+    # Private bank backups can live outside the checkout. Their owner-saved
+    # locations receive the same protection in both tool execution modes.
+    for root in dict.fromkeys(Path(r).resolve() for r in roots):
+        registry=root/'private-data-paths.json'
+        if not registry.is_file():continue
+        data=json.loads(registry.read_text())
+        paths=data.get('paths') if isinstance(data,dict) else None
+        if not isinstance(paths,list) or any(not isinstance(p,str) or not Path(p).is_absolute() for p in paths):
+            raise ValueError('Private data locations must be a list of absolute paths.')
+        for path in paths:
+            private=Path(path).resolve()
+            if private==cwd or cwd.is_relative_to(private):
+                raise ValueError('Task workspace overlaps registered private data.')
+            lines.append(f'(deny file-read* file-write* (subpath "{quoted(private)}"))')
     # Known historical diagnostic exports may be outside the repository.
     for base in (Path('/private/tmp'), Path(os.environ.get('TMPDIR','/private/tmp'))):
         for private in base.glob('hourglass-*'):

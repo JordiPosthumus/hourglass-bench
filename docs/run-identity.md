@@ -4,7 +4,7 @@ Run names use the compact pattern `hardware-server/recipe-model-quant`, for exam
 
 `DGXSP-BlazuxBF16KVC1-Qwen3.8-NVFP4`
 
-The server/recipe field is free text: include meaningful settings such as cache precision and concurrency there. A separate server version is optional and appears in parentheses. Hardware, server/recipe, model and quantization are required when reviewing a new run. Existing saved details are offered upfront; historical missing components display `XXX`.
+The server/recipe field is free text: include meaningful settings such as cache precision and concurrency there. A separate server version is optional and appears in parentheses. The start review shows the saved configuration as a read-only summary. It has no duplicate naming inputs. Existing saved details include the backend and version recorded in an inference profile; use Run editor to correct labels. Missing components display `XXX`; they do not prevent a configured model from starting. Unknown quantization is not inferred from a model alias. Execution configuration checks still apply, and any start error appears inside the review dialog.
 
 Use **Run editor** to edit the components or the complete generated name. **Reset to generated name** removes the override. Naming corrections apply to past and future runs with the same saved execution configuration and recorded hardware. Other reported settings retain their own per-run history. Original manifests, result rows and prior revisions remain intact.
 

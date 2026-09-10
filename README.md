@@ -1,12 +1,12 @@
-# Hourglass Bench
+# Hourglass
 
 **One hour. How much can your agent solve?**
 
-Hourglass Bench is a local evaluation harness for tool-using AI models. Give each model the same private question bank and measure how many questions it answers correctly within **one hour of active wall time**.
+Hourglass is a local evaluation harness for tool-using AI models. Give each model the same private question bank and measure how many questions it answers correctly within **one hour of active wall time**.
 
 ## Results
 
-I use **private questions** for my own Hourglass Bench evaluations. Published results contain aggregate scores, hardware and recorded model configurations; the questions, answers and traces stay private.
+I use **private questions** for my own Hourglass evaluations. Published results contain aggregate scores, hardware and recorded model configurations; the questions, answers and traces stay private.
 
 Browse the [Results index](reports/README.md) for published runs and model improvement charts. Related releases share a model-family label, with dated entries for weights revisions, quantization, inference engines, harnesses and parameters. Earlier runs remain available, including regressions. Different hardware and evaluation protocols are separated; partial runs are clearly marked.
 
@@ -16,7 +16,7 @@ See [recording model improvements](docs/results-history.md) for the workflow and
 
 **Bring your own question bank.** This repository includes only a tiny, explicitly labeled [hello-world demo](examples/hello-world) to check your setup. No private benchmark questions, private answer keys, question images, datasets, or recorded model runs are included. There is no bundled 100-question test and no universal leaderboard.
 
-Create your bank locally under `tasks/`. That directory, model configuration, results, logs, and backups are ignored by Git. See [the task format](docs/task-format.md). The automated tests use small software fixtures, not a benchmark question bank.
+Create your bank locally under `tasks/`. That directory, model configuration, results, logs, and backups are ignored by Git. See [the task format](docs/task-format.md) and [private question versioning](docs/private-question-bank.md). The automated tests use small software fixtures, not a benchmark question bank.
 
 Scores are comparable only when models use the **same questions, order, repeat policy, harness and relevant execution settings**. A score from somebody else's private bank is not directly comparable with yours.
 
@@ -35,7 +35,7 @@ Difficulty weights are versioned as `weighted-hour-v1`; the active-clock boundar
 
 Regular questions cycle through **easy → medium → hard**, rotating subjects within each difficulty band. This gives the early part of a run a mixture of difficulty and subject matter. The order is fixed before the run and does not adapt to the model's answers.
 
-The private version 2.2 reference evaluation adds a challenge after every four regular questions. The regular cycle continues across those insertions. Its 120-question bank remains private; the public runtime supports this cadence for user-authored challenge tasks.
+The private reference evaluation adds a challenge after every four regular questions. Version 2.7 then inserts a repository discovery case after every eight questions of that existing sequence, rotating Games, Hourglass and DSG. Its 135-question bank remains private; this runtime supports the same ordering for your own tasks. Existing runs retain their frozen sequence.
 
 All waves share the same one-hour clock. Each question has a 15-minute total limit, including tools, retries and repeats. Time spent reasoning and checking answers reduces the time available for later questions. Read [the method: waves of questions](docs/methodology.md) for the sequence, challenge cadence, scoring rationale and comparison limits.
 
@@ -48,8 +48,8 @@ Run an OpenAI-compatible local model server with chat-completions streaming and 
 ## Quick start
 
 ```sh
-git clone https://github.com/JordiPosthumus/hourglass-bench.git
-cd hourglass-bench
+git clone https://github.com/JordiPosthumus/hourglass.git
+cd hourglass
 cp models.example.json models.json
 ```
 
@@ -118,7 +118,7 @@ Major releases mark incompatible benchmark generations. Minor releases add funct
 
 ## Starting, stopping and resuming
 
-Run `./start-hourglass-bench.sh` in your own Terminal; it opens the UI. Keep that Terminal open. On macOS, `./stop-hourglass-bench.sh` cancels queued work, asks the active test to stop, waits for results to be saved, and closes only this checkout's UI and report helper. Model servers remain running.
+Run `./start-hourglass.sh` in your own Terminal; it opens the UI. Keep that Terminal open. On macOS, `./stop-hourglass.sh` cancels queued work, asks the active test to stop, waits for results to be saved, and closes only this checkout's UI and report helper. Model servers remain running.
 
 Use **Resume run** to continue a stopped evaluation with its recorded time and completed answers. After an interrupted controller, startup can also recover the clock when a finished phase and a persisted stopped-Pi shutdown trace agree. Recovery backs up the original manifest and supporting evidence, retains the completed answers, charges interrupted work, and excludes downtime. Without that evidence, the clock is shown as unavailable instead of a misleading zero or fresh hour.
 

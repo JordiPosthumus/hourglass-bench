@@ -10,7 +10,7 @@ def existing_bench(port):
             info=json.load(r)
             if info.get('workspace_key') and info['workspace_key']!=web.workspace_key():
                 raise SystemExit(f'Port {port} belongs to another checkout. Set HOURGLASS_PORT to a free port.')
-            return info.get('app') =='Hourglass Bench'
+            return info.get('app') in ('Hourglass','Hourglass Bench')
     except Exception:return False
 
 def main():
@@ -21,7 +21,7 @@ def main():
     for port in ports:
         url=f'http://127.0.0.1:{port}'
         if existing_bench(port):
-            print(f'Hourglass Bench is already running: {url}',flush=True)
+            print(f'Hourglass is already running: {url}',flush=True)
             if not args.no_open:webbrowser.open(url)
             return
         try:server=web.ThreadingHTTPServer(('127.0.0.1',port),web.H)
@@ -30,7 +30,7 @@ def main():
             continue
         if port!=wanted:print(f'Port {wanted} is occupied; using {port}. Existing services left running.',flush=True)
         web.PORT=port;web.start_worker()
-        print(f'Hourglass Bench → {url}',flush=True)
+        print(f'Hourglass → {url}',flush=True)
         if not args.no_open:threading.Thread(target=lambda:webbrowser.open(url),daemon=True).start()
         web.serve(server)
         return

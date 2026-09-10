@@ -12,7 +12,7 @@ class ReadableRunsTests(unittest.TestCase):
         self.assertEqual(run_naming.describe({},values)['name'],'DGXSP-BlazuxBF16KVC1-Qwen3.8-NVFP4')
         self.assertEqual(run_naming.describe({},dict(values,run_name='Mine'))['name'],'Mine')
         self.assertEqual(run_naming.describe({})['name'],'XXX-XXX-XXX-XXX')
-        with self.assertRaises(ValueError):run_editor.required_identity({'hardware':'XXX'})
+        self.assertEqual(run_editor.required_identity({'hardware':'XXX','quantization':'unknown','server_name':''}),{})
         self.assertEqual(run_editor.required_identity(values),values)
     def test_shared_corrections_and_reset_preserve_sidecars(self):
         with tempfile.TemporaryDirectory() as d:

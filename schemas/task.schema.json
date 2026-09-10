@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Locally supplied Hourglass Bench task",
+  "title": "Locally supplied Hourglass task",
   "description": "Structure only. No question or answer content is supplied.",
   "type": "object",
   "required": ["id", "kind", "mode", "prompt"],
@@ -12,6 +12,7 @@
     "prompt": {"type":"string", "minLength":1},
     "section": {"type":"string"},
     "family": {"type":"string"},
+    "discovery_domain": {"enum":["games","hourglass","dsg"]},
     "tier": {"type":["number","null"]},
     "level": {"type":"string"},
     "repeat": {"type":"integer", "minimum":1},

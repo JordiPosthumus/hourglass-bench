@@ -22,7 +22,7 @@ def normalize(key,value):
     if len(value)>160 or any(ord(c)<32 for c in value) or ' | ' in value:
         raise ValueError('Identity fields must be single lines of at most 160 characters, without | separators.')
     if key=='hardware':return hardware(value)
-    if key=='server_name':return {'lm studio':'LM Studio','lmstudio':'LM Studio','llama.cpp':'llama.cpp','llama-server':'llama.cpp','mlx-lm':'MLX-LM','vllm':'vLLM','vllm-mlx':'vllm-mlx'}.get(value.casefold(),value)
+    if key=='server_name':return {'lm studio':'LM Studio','lmstudio':'LM Studio','llama.cpp':'llama.cpp','llama-server':'llama.cpp','mlx-lm':'MLX-LM','vllm':'vLLM','vllm-mlx':'vllm-mlx','mtplx':'MTPLX','omlx':'oMLX','sglang':'SGLang','ds4':'DS4'}.get(value.casefold(),value)
     if key=='server_version':
         value=re.sub(r'^Version\s+', '',value,flags=re.I)
         match=re.fullmatch(r'(.+?)\s*\(\1\)',value)
@@ -35,11 +35,12 @@ def normalize(key,value):
 def describe(manifest,values=None,recorded_hardware=None):
     values=values or {}
     config=manifest.get('model_config_snapshot') or {}
+    profile=config.get('inference_profile') if isinstance(config.get('inference_profile'),dict) else {}
     machine=recorded_hardware or manifest.get('hardware') or {}
     fields={
         'hardware':values.get('hardware') or machine.get('label'),
-        'server_name':values.get('server_name') or config.get('server_name'),
-        'server_version':values.get('server_version') or config.get('server_version'),
+        'server_name':values.get('server_name') or config.get('server_name') or profile.get('backend'),
+        'server_version':values.get('server_version') or config.get('server_version') or profile.get('backend_version'),
         'model_name':values.get('model_name') or manifest.get('model_id') or config.get('model'),
         'quantization':values.get('quantization') or config.get('quantization'),
     }

@@ -39,10 +39,15 @@ function hourScore(job, rows, expected=[], now=Date.now()/1000){
     lanes[lane]={points:available?correctLane.size:null,weighted_points:available?Math.round((weighted(correctLane)-(netPolicy?[...new Set(rs.map(r=>r.task))].filter(t=>wrong.has(t)).length:0))*1e6)/1e6:null,completed_questions:new Set(rs.map(r=>r.task)).size};
   }
   const repeats=new Map(expected.map(t=>[t.task,t.repeat??1]));
+  const discovery={};
+  for(const domain of ['games','hourglass','dsg']){
+    const group=expected.filter(t=>t.section==='repository_discovery'&&t.discovery_domain===domain&&tids.has(t.task)).map(t=>t.task);
+    if(group.length)discovery[domain]={points:available?group.filter(t=>correct.has(t)).length:null,weighted_points:available?Math.round((weighted(new Set(group.filter(t=>correct.has(t))))-(netPolicy?group.filter(t=>wrong.has(t)).length:0))*1e6)/1e6:null,completed_questions:group.filter(t=>completed.has(t)).length,total_questions:group.length};
+  }
   const allFinished=tids.size>0&&[...tids].every(tid=>timeouts.has(tid)||Array.from({length:repeats.get(tid)??1},(_,i)=>i+1).every(n=>within.some(r=>r.task===tid&&(r.run??1)===n)));
   const final=available&&(elapsed>=3600||allFinished);
   const state=!available?'unavailable':final?'final':job.state==='running'?'in_progress':!started?'not_started':'partial';
-  return {version:'hour-v1',window_s:3600,points:available?correct.size:null,correct_tasks:available?[...correct].sort():[],breakdown:lanes,
+  return {version:'hour-v1',window_s:3600,points:available?correct.size:null,correct_tasks:available?[...correct].sort():[],breakdown:lanes,repository_discovery:discovery,
     weighted_version:'weighted-hour-v1',weighted_points:available?Math.round((weighted(correct)-(netPolicy?wrong.size:0))*1e6)/1e6:null,
     scoring_policy:job.scoring_policy??'weighted-hour-v1',gross_points:weighted(correct),net_points:available&&netPolicy?Math.round((weighted(correct)-wrong.size)*1e6)/1e6:null,penalty_points:netPolicy?wrong.size:0,abstained_questions:countReason('abstained'),unsupported_questions:countReason('unsupported_vision'),
     timeouts:timeouts.size,resolved_questions:new Set([...completed,...timeouts]).size,question_timeout_policy:job.question_timeout_policy??null,

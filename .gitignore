@@ -44,3 +44,9 @@ run-detail-choices.jsonl
 /runtime-diagnostics/
 
 /hardware-groups.json
+
+# Private question-bank snapshots and external storage registry.
+/private-question-bank/
+/private-data-paths.json
+/potential-questions/
+/challenge_authoring/

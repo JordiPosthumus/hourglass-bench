@@ -16,7 +16,7 @@ Questions run in repeated easy → medium → hard waves, rotating subjects with
 
 At the deadline the UI controller signals the benchmark process group, preserves completed attempts, and plays a system chime. The model server itself is not stopped. Each question has a 900-second active budget including tools, retries and repeats; expiry advances automatically. There are no separate bash or generation deadlines; there is no harness turn-count limit. Configured model output/context limits still apply.
 
-For comparison, hold bank content and order, repeats, harness version, model configuration, and hardware constant or disclose their differences. Record server sampling settings when available. Hourglass Bench is a measurement tool, not a shared standardized test set.
+For comparison, hold bank content and order, repeats, harness version, model configuration, and hardware constant or disclose their differences. Record server sampling settings when available. Hourglass is a measurement tool, not a shared standardized test set.
 
 ## Publishing
 

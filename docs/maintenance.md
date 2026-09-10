@@ -131,7 +131,7 @@ Context discovery falls back to the matching `/v1/models` entry when LM Studio m
 
 ### Controller lifecycle
 
-Start the app from your own Terminal with `./start-hourglass-bench.sh`. SIGINT, SIGTERM and SIGHUP request graceful worker drainage before exit. `./stop-hourglass-bench.sh` validates checkout and controller identity, cancels queued work and waits for saved state. New run/resume requests are rejected during shutdown. The worker watches its controller parent, stops its own process group if orphaned, and atomically saves an exit receipt. Recovery uses the exact question token and timestamps and backs up evidence before changing a manifest. Completed metric files missing from the append-only result index are reconciled under the same worker lock, with an original-index backup. Without reliable exit evidence, timing stays unavailable. Reports use the main UI at `/scores/`; no report helper is required.
+Start the app from your own Terminal with `./start-hourglass.sh`. SIGINT, SIGTERM and SIGHUP request graceful worker drainage before exit. `./stop-hourglass.sh` validates checkout and controller identity, cancels queued work and waits for saved state. New run/resume requests are rejected during shutdown. The worker watches its controller parent, stops its own process group if orphaned, and atomically saves an exit receipt. Recovery uses the exact question token and timestamps and backs up evidence before changing a manifest. Completed metric files missing from the append-only result index are reconciled under the same worker lock, with an original-index backup. Without reliable exit evidence, timing stays unavailable. Reports use the main UI at `/scores/`; no report helper is required.
 
 
 ## Diagnostic isolation and question resets (2.5.1)
@@ -139,3 +139,12 @@ Start the app from your own Terminal with `./start-hourglass-bench.sh`. SIGINT, 
 New attempts keep harness traces, stderr, integrity records, Pi request configuration and SDK sessions in `runtime-diagnostics/`, outside the model workspace. All exposed filesystem tools and bash run with OS denials for harness runtime storage, including when optional task sandboxing is disabled. Authored task files remain available. Result artifacts retain the original trace plus raw diagnostic copies; recovery supports historical locations only for older attempts. No model limits, thinking settings, question content or scoring weights change.
 
 In the run view, choose **Reset & rerun questions**, select individual attempts, enter a reason and reset once active and queued work are idle. Raw artifacts remain available; a timestamped backup saves the original index, manifests and reference scales. A reset ledger prevents crash recovery from restoring deliberately removed results. Reset runs cannot publish their old hourly score or resume that clock. The rerun buttons select affected questions and the saved model; review the new run to start it. Previous reset plans remain accessible from the same control. These are fresh targeted evaluations, not replacements for a complete one-hour comparison.
+
+
+## Hourglass 2.7.1 release
+
+The product and repository use the name Hourglass. Legacy launch and stop entry points continue to work, and old controller identity strings remain recognized. Existing environment variables and persisted browser state retain compatibility.
+
+Repository discovery tasks can be woven into the selected bank after every eight existing questions, with Games, Hourglass and DSG rotation and source subtotals. No private task content is included in this repository. See [methodology](methodology.md) and [private question versioning](private-question-bank.md).
+
+The start review displays the saved configuration once, without duplicate naming inputs. Missing descriptive fields do not block execution; genuine configuration/revision errors remain visible inside the dialog. Start errors leave the reviewed request intact for retry.
