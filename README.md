@@ -31,6 +31,10 @@ cd hourglass
 
 Configure a local `models.json` using `models.example.json` as a format reference. Use the actual endpoint, loaded model ID and verified limits; the example numbers are placeholders. Install the optional connection demo with `python3 scripts/install_demo.py`, then launch `./start-hourglass.sh` in your Terminal. The UI normally opens at `http://127.0.0.1:4534`.
 
+## Issue for Agents
+
+Before setting up or rebuilding a model server, read [known agent/server issues](docs/issues-for-agents.md). Large output requests must use the space remaining after the complete prompt, including tool history and vision inputs. The [replayable patch bundle](backend-patches/output-space/README.md) provides exact source checks, backups, rollback and validation steps. Preserve the owner's established model capabilities and settings.
+
 ## Build a bank that matters to you
 
 Try repository handoffs, debugging from logs, reconciling conflicting specifications, interpreting charts you generated, checking calculations, or tracing a decision through a small document set. Use synthetic material or material you own and are entitled to send to your model endpoint.
@@ -42,6 +46,10 @@ Store your bank under `tasks/`, with one `task.json` per question directory. See
 **Scores from different private banks are not directly comparable.** The public tests contain small software fixtures, not a hidden benchmark bank. Private questions, answer keys, images, source bundles and traces are not distributed here.
 
 ## How the evaluation works
+
+Hourglass 3.0.0 uses the pinned Pi SDK’s native model declarations, thinking selection, context sizing, compaction and retry defaults. Read [inference profiles](docs/inference-profiles.md) before creating or migrating a configuration. Existing historical profiles keep their saved behavior.
+
+The headline **Hourglass Score** measures the area under net points over active time, scaled so that steady perfect completion of the frozen bank over one hour scores 100. Earlier correct work earns more; scores can exceed 100. Unfinished runs show a clearly labelled forecast after the first answered question. Rankings and exports use measured scores. See [the score definition](docs/results-history.md#hourglass-score).
 
 1. The UI freezes the selected questions, order, repeats, model configuration and evaluation policies.
 2. The bundled Pi agent works through the questions using files, bash and tools in isolated workspaces.

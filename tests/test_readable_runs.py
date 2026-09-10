@@ -26,11 +26,11 @@ class ReadableRunsTests(unittest.TestCase):
             self.assertFalse(run_editor.display(root,a)['overridden'])
             self.assertEqual((root/'evaluations/a.details.jsonl').read_bytes(),before)
     def test_repeat_mean_curve_and_incompatible_runs(self):
-        a={'run_key':'a','configuration_key':'c','model':'m','state':'final','bank_fingerprint':'b','benchmark_version':'2.6','scoring':'net','weighted_points':2,'curve':[{'seconds':0,'weighted':0,'correct':0},{'seconds':60,'weighted':2,'correct':1}]}
-        b=dict(a,run_key='b',weighted_points=4,curve=[{'seconds':0,'weighted':0,'correct':0},{'seconds':120,'weighted':4,'correct':2}])
+        a={'run_key':'a','configuration_key':'c','model':'m','state':'final','bank_fingerprint':'b','benchmark_version':'2.6','scoring':'net','score_version':'linear-auc-100-v1','total_available_points':4,'hourglass_score':98.333333,'weighted_points':2,'curve':[{'seconds':0,'weighted':0,'correct':0},{'seconds':60,'weighted':2,'correct':1}]}
+        b=dict(a,run_key='b',hourglass_score=193.333333,weighted_points=4,curve=[{'seconds':0,'weighted':0,'correct':0},{'seconds':120,'weighted':4,'correct':2}])
         old=dict(a,run_key='old',bank_fingerprint='old');live=dict(a,run_key='live',is_current_run=True,state='partial')
         reports=[a,b,old,live];before=copy.deepcopy(reports);out=repeat_reports.average(reports)
-        self.assertEqual(len(out),3);mean=out[0];self.assertEqual(mean['weighted_points'],3)
+        self.assertEqual(len(out),3);mean=out[0];self.assertEqual(mean['weighted_points'],3);self.assertAlmostEqual(mean['hourglass_score'],145.833333)
         self.assertEqual([p['weighted'] for p in mean['curve'] if p['seconds']==60],[0,1])
         self.assertEqual([p['weighted'] for p in mean['curve'] if p['seconds']==120],[1,3])
         self.assertEqual(mean['member_run_keys'],['a','b']);self.assertEqual(reports,before)

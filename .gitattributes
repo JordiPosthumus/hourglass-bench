@@ -1,0 +1,2 @@
+# Unified diffs use a single space for empty context lines.
+backend-patches/output-space/*.patch whitespace=-blank-at-eol

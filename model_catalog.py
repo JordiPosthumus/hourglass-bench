@@ -110,17 +110,21 @@ def base_url(value):
     return value
 
 
-def read_endpoint(url):
+def read_endpoint(url, api_key=None):
     """Bounded GET only. Errors are observations, not a reason to send a prompt."""
     result={'url':url,'status':None,'http_server':None}
     try:
-        request=urllib.request.Request(url,headers={'Accept':'application/json'})
+        headers={'Accept':'application/json'}
+        if api_key:headers['Authorization']='Bearer '+api_key
+        request=urllib.request.Request(url,headers=headers)
         with urllib.request.urlopen(request,timeout=4) as response:
             result.update(status=response.status,http_server=response.headers.get('Server'))
             data=response.read(2_000_001)
         if len(data)>2_000_000:raise ValueError('Response exceeds the metadata size limit.')
         result['data']=json.loads(data)
-    except urllib.error.HTTPError as exc:result.update(status=exc.code,error=f'HTTP {exc.code}')
+    except urllib.error.HTTPError as exc:
+        result.update(status=exc.code,http_server=exc.headers.get('Server'),error=f'HTTP {exc.code}')
+        exc.close()
     except (urllib.error.URLError,TimeoutError,OSError):result['error']='Could not connect'
     except (ValueError,UnicodeDecodeError):result['error']='Response was not a usable JSON document'
     return result
@@ -135,7 +139,8 @@ def metadata(value):
     return value
 
 
-def inspect_endpoint(value):
+def inspect_endpoint(value, api_key=None):
+    def read(url):return read_endpoint(url,api_key) if api_key else read_endpoint(url)
     entered=base_url(value)
     for suffix in ('/chat/completions','/models'):
         if entered.endswith(suffix):entered=entered[:-len(suffix)];break
@@ -144,14 +149,15 @@ def inspect_endpoint(value):
     bases=[entered+'/v1',entered] if not root_path else [entered]
     probes=[];chosen=bases[0];advertised=[]
     for candidate in bases:
-        result=read_endpoint(candidate+'/models');probes.append(result)
+        result=read(candidate+'/models');probes.append(result)
         doc=result.get('data')
         if isinstance(doc,dict) and isinstance(doc.get('data'),list):
             chosen=candidate;advertised=doc['data'];break
+    model_list_probes=list(probes)
     root=chosen.removesuffix('/v1')
     urls=[root+'/api/v1/models',root+'/props',root+'/health']
     with ThreadPoolExecutor(max_workers=3) as pool:
-        extra=list(pool.map(read_endpoint,urls))
+        extra=list(pool.map(read,urls))
     probes.extend(extra)
     native=extra[0].get('data') or {};props=extra[1].get('data') or {};health=extra[2].get('data') or {}
     native_models=native.get('models',[]) if isinstance(native,dict) else []
@@ -189,7 +195,13 @@ def inspect_endpoint(value):
     if isinstance(health,dict):
         for key in ('status','slots_idle','slots_processing','model','backend','version'):
             if key in health:reported.append({'label':key,'value':metadata(health[key]),'source':'/health'})
-    return {'base_url':chosen,'models':rows,'reachable':any(p.get('status') is not None for p in probes),
+    auth_status=next((p['status'] for p in model_list_probes if p.get('status') in (401,403)),None)
+    error=None
+    if auth_status and not rows:
+        error=(f'Model discovery failed (HTTP {auth_status}): '+
+               ('API key missing or rejected. Enter the server API key and inspect again.' if auth_status==401 else
+                'Access denied. Check the API key and its permission to list models.'))
+    return {'error':error,'base_url':chosen,'models':rows,'reachable':any(p.get('status') is not None for p in probes),
             'kind':'LM Studio metadata' if native_models else 'OpenAI-compatible model list' if rows else 'No compatible model list found',
             'http_server':next((p['http_server'] for p in probes if p.get('http_server')),None),
             'reported':reported,'probes':[{'path':urllib.parse.urlsplit(p['url']).path,'status':p['status'],'error':p.get('error')} for p in probes],

@@ -29,6 +29,7 @@ def score(job, rows, expected=(), now=None):
     elapsed = active_at(job.get('ended') or now) if timing_known else job.get('progress', {}).get('elapsed_s', 0)
     elapsed += (job.get('repair') or {}).get('base_elapsed_s',0) if timing_known else 0
     within, after, errors, unknown = [], set(), 0, 0
+    events = []
     timeouts = set()
     for r in raw:
         if r.get('score_reason') in ('five_wrong_in_row', 'wrong_streak_limit'):
@@ -52,6 +53,7 @@ def score(job, rows, expected=(), now=None):
             errors += 1
         elif r.get('status') == 'completed':
             within.append(r)
+            events.append((row_elapsed, r))
     available = timing_known and not unknown and not job.get("results_reset")
     correct = {r['task'] for r in within if r.get('solved')}
     completed = {r['task'] for r in within}
@@ -80,13 +82,31 @@ def score(job, rows, expected=(), now=None):
     all_finished=bool(tids) and all(tid in timeouts or set(range(1,repeats.get(tid,1)+1)).issubset({r.get('run',1) for r in within if r['task']==tid}) for tid in tids)
     final = available and (elapsed >= WINDOW_S or all_finished)
     state = 'unavailable' if not available else 'final' if final else 'in_progress' if job.get('state') == 'running' else 'not_started' if not started else 'partial'
+    # Integrate signed changes once per question; correct repeats supersede wrong ones.
+    horizon = WINDOW_S if final else max(0, min(WINDOW_S, elapsed))
+    total_available = round(sum(weights.get(tid, 1.0) for tid in tids), 6)
+    area = 0.0
+    task_values = {}
+    for at, r in sorted(events, key=lambda event: event[0]):
+        previous = task_values.get(r['task'], 0.0)
+        value = weights.get(r['task'], 1.0) if r.get('solved') else previous
+        if net_policy and scoring_policy.incorrect(r) and previous <= 0:
+            value = -1.0
+        area += (value - previous) * max(0, horizon - at)
+        task_values[r['task']] = value
+    denominator = total_available * WINDOW_S / 200
+    normalized = round(area / denominator, 6) if available and denominator > 0 else None
     return {'version': VERSION, 'window_s': WINDOW_S, 'points': len(correct) if available else None,
+            'score_version':'linear-auc-100-v1','hourglass_score':normalized,
+            'total_available_points':total_available,'auc_point_seconds':round(area,6) if available else None,
+            'score_denominator_point_seconds':denominator,
             'weighted_version':score_weights.VERSION,'weighted_points':net if net_policy else gross,
             'scoring_policy':job.get('scoring_policy') or scoring_policy.LEGACY,'gross_points':gross,'net_points':net if net_policy else None,
             'penalty_points':len(wrong) if net_policy else 0,'abstained_questions':len(abstained),'unsupported_questions':len(unsupported),
             'correct_tasks': sorted(correct) if available else [], 'breakdown': lanes,
             'repository_discovery': discovery,
             'timeouts':len(timeouts), 'resolved_questions':len(completed | timeouts),
+            'resolved_available_points':weighted(completed | timeouts),
             'question_timeout_policy':job.get('question_timeout_policy'),
             'completed_questions': len(completed), 'incorrect_questions': len(wrong),
             'total_questions': len(tids), 'after_deadline_questions': len(after), 'errors': errors,
@@ -96,11 +116,11 @@ def score(job, rows, expected=(), now=None):
 
 
 def leaderboard(root, rows):
-    lines = ['## Hourglass score · weighted points in one hour', '',
+    lines = ['## Hourglass score · linear AUC reference = 100', '',
              'Correct questions within 3,600 active seconds earn 1–2 points on fixed section difficulty scales. Raw correct counts remain visible. '
              'Scores are not extrapolated. Compare the same bank, order and repeat policy. '
-             'Metric: hour-v1; execution versions remain unchanged.', '',
-             '| model | run | questions | weighted score | raw correct | text points | vision points | status |',
+             'Metric: linear-auc-100-v1. 100 = all available weighted points earned linearly in one hour. Execution versions remain unchanged.', '',
+             '| model | run | questions | Hourglass score | raw correct | text points | vision points | status |',
              '|---|---|---|---|---|---|---|---|']
     for p in sorted((root / 'evaluations').glob('*.json')):
         m = json.loads(p.read_text())
@@ -108,5 +128,5 @@ def leaderboard(root, rows):
             continue
         h = score(m, rows,score_weights.enrich(root,m['expected']))
         value = lambda n: '—' if n is None else str(n)
-        lines.append(f"| {m['model']} | {m['id'][:8]} | {h['total_questions']} | {value(h['weighted_points'])} | {value(h['points'])} | {value(h['breakdown']['text']['weighted_points'])} | {value(h['breakdown']['vision']['weighted_points'])} | {h['state']} |")
+        lines.append(f"| {m['model']} | {m['id'][:8]} | {h['total_questions']} | {('—' if h['hourglass_score'] is None else format(h['hourglass_score'], '.1f'))} | {value(h['points'])} | {value(h['breakdown']['text']['weighted_points'])} | {value(h['breakdown']['vision']['weighted_points'])} | {h['state']} |")
     return '\n'.join(lines) + '\n\n'

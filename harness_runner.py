@@ -1,4 +1,6 @@
 """Frozen Pi SDK adapter. Benchmark scoring remains outside the agent process."""
+import inference_profiles
+import stock_pi
 import scoring_policy
 import diagnostics
 import contextlib
@@ -56,6 +58,9 @@ def verify_frozen():
 
 def run(task,cfg,workdir,sandboxed):
     import hourglass
+    request_settings=inference_profiles.request_settings(cfg)
+    native_pi=stock_pi.enabled(cfg)
+    observe_settings=native_pi or request_settings is not None
     started=time.time();trace=[];pt=ct=calls=0
     frozen_hash=verify_frozen()
     metadata=server_metadata(cfg)
@@ -78,14 +83,26 @@ def run(task,cfg,workdir,sandboxed):
     agent_dir=diagnostic_dir/'agent';agent_dir.mkdir(exist_ok=True,mode=0o700)
     with contextlib.nullcontext(str(agent_dir)) as private:
         provider={'baseUrl':cfg['base_url'],'api':'openai-completions','apiKey':cfg.get('api_key','local'),'models':[{'id':cfg['model'],'name':cfg['model'],'reasoning':True,'input':['text','image'],'contextWindow':context,'maxTokens':cfg.get('max_tokens',1024),'cost':{'input':0,'output':0,'cacheRead':0,'cacheWrite':0}}]}
+        # The generic "benchmark" provider cannot auto-detect the actual backend.
+        # vLLM rejects Pi's default store:false; declare that API difference using
+        # Pi's native compatibility switch, without changing generation settings.
+        if request_settings is not None and cfg['inference_profile']['backend']=='vllm':
+            provider['models'][0]['compat']={'supportsStore':False}
+        if native_pi:
+            provider['models']=[stock_pi.model_definition(cfg,context)]
         (agent_dir/'models.json').write_text(json.dumps({'providers':{'benchmark':provider}}))
         payload={'cwd':str(workdir),'agentDir':private,'model':cfg,'prompt':prompt+'\n\nCall '+final+' when finished.','images':images,
                  'instructions':(scoring_instructions+' ' if scoring_instructions else '')+'Work on exactly this benchmark question. Use the workspace tools as needed. Network access is unavailable. Finish by calling '+final+'.',
                  'finalTool':final,'answerDescription':'Submit the final benchmark answer.',
                  'answerSchema':answer_schema,
                  'sandboxProfile':hourglass.sandbox_profile(workdir,sandboxed)}
+        if request_settings is not None:payload['requestSettings']=request_settings
         request=agent_dir/'request.json';request.write_text(json.dumps(payload))
         result=None;error=None;requested=[];thinking={"pi_thinking_level":None,"source":"not captured","server_reasoning_default":metadata.get("model",{}).get("capabilities",{}).get("reasoning",{}).get("default"),"server_effective_reasoning":None,"thinking_content_observed":False}
+        capture_summary={};route_observations=[];session_settings={}
+        def capture_evidence():
+            return {'settings_capture':{**capture_summary,'recorded_count':len(requested)},'route_observations':route_observations,
+                    **({'pi_session':session_settings,'pi_model':provider['models'][0],'sampling_era':stock_pi.ERA} if native_pi else {})} if observe_settings else {}
         proc=subprocess.Popen(['node',str(ROOT/'harness/pi.mjs'),str(request)],cwd=workdir,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
         # Read stderr concurrently: a verbose failure must not fill that pipe
         # while the main thread waits for the next stdout record or EOF.
@@ -124,7 +141,10 @@ def run(task,cfg,workdir,sandboxed):
             trace.append(item)
             if 'requested_settings' in item:
                 requested.append(item['requested_settings']);phase('waiting')
+            if 'settings_capture_summary' in item:capture_summary.update(item['settings_capture_summary'])
+            if 'route_observation' in item:route_observations.append(item['route_observation'])
             if 'thinking_settings' in item:thinking.update(item['thinking_settings'])
+            if 'session_settings' in item:session_settings.update(item['session_settings'])
             event=item.get('event',{})
             if event.get('type')=='turn_start':print('MODEL Pi turn: waiting for response',flush=True)
             if event.get('type')=='tool_execution_start':
@@ -143,11 +163,11 @@ def run(task,cfg,workdir,sandboxed):
         rc=proc.wait();stderr_reader.join();stderr=b''.join(stderr_parts).decode('utf-8',errors='replace')
         signal.signal(signal.SIGTERM,previous)
         if stop_requested:
-            (diagnostic_dir/'interrupted-pi-trace.json').write_text(json.dumps({'trace':trace,'remaining_stdout':'','stderr':stderr,'metrics':{'prompt_tokens':pt,'completion_tokens':ct,'tool_calls':calls,'usage_complete':False,'thinking_settings':thinking,'requested_settings':requested,'harness':'pi','pi_version':'0.85.1','harness_sha256':hashlib.sha256((ROOT/'harness/pi.mjs').read_bytes()).hexdigest(),'pi_lock_sha256':frozen_hash,'server_settings':metadata,'temperature':metadata['temperature'],'temperature_source':metadata['temperature_source'],'context_window':context,**diagnostics.descriptor(ROOT,workdir)}},indent=1))
+            (diagnostic_dir/'interrupted-pi-trace.json').write_text(json.dumps({'trace':trace,'remaining_stdout':'','stderr':stderr,'metrics':{'prompt_tokens':pt,'completion_tokens':ct,'tool_calls':calls,'usage_complete':False,'thinking_settings':thinking,'requested_settings':requested,'harness':'pi','pi_version':'0.85.1','harness_sha256':hashlib.sha256((ROOT/'harness/pi.mjs').read_bytes()).hexdigest(),'pi_lock_sha256':frozen_hash,'server_settings':metadata,'temperature':metadata['temperature'],'temperature_source':metadata['temperature_source'],'context_window':context,**capture_evidence(),**diagnostics.descriptor(ROOT,workdir)}},indent=1))
             raise SystemExit(130)
         if rc or error or result is None:
             failure=hourglass.AgentRunError(error or stderr or f'Pi exited {rc} without result',trace,pt,ct,calls,started)
-            failure.metrics.update(**diagnostics.descriptor(ROOT,workdir),thinking_settings=thinking,requested_settings=requested,harness='pi',pi_version='0.85.1',pi_lock_sha256=frozen_hash,server_settings=metadata,temperature=metadata['temperature'],temperature_source=metadata['temperature_source'])
+            failure.metrics.update(**capture_evidence(),**diagnostics.descriptor(ROOT,workdir),thinking_settings=thinking,requested_settings=requested,harness='pi',pi_version='0.85.1',pi_lock_sha256=frozen_hash,server_settings=metadata,temperature=metadata['temperature'],temperature_source=metadata['temperature_source'])
             # Pi serializes provider exceptions, so restore the capability-error
             # type that the scoring layer already handles as an unsupported zero.
             if images and error and re.search(r'\b(?:400|415|422|500):',error) and hourglass.vision_rejection(error):
@@ -155,5 +175,5 @@ def run(task,cfg,workdir,sandboxed):
             raise failure
         metrics={'prompt_tokens':pt,'completion_tokens':ct,'tool_calls':calls,'duration_s':round(time.time()-started,3),
                  'thinking_settings':thinking,'requested_settings':requested,'termination':result['termination'],'harness':'pi','pi_version':'0.85.1','harness_sha256':hashlib.sha256((ROOT/'harness/pi.mjs').read_bytes()).hexdigest(),
-                 'pi_lock_sha256':frozen_hash,'server_settings':metadata,'temperature':metadata['temperature'],'temperature_source':metadata['temperature_source'],'context_window':context,**diagnostics.descriptor(ROOT,workdir)}
+                 'pi_lock_sha256':frozen_hash,'server_settings':metadata,'temperature':metadata['temperature'],'temperature_source':metadata['temperature_source'],'context_window':context,**capture_evidence(),**diagnostics.descriptor(ROOT,workdir)}
         return trace,metrics,result['answer'],disp_map

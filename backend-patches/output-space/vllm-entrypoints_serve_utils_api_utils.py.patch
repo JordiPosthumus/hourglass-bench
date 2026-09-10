@@ -1,0 +1,43 @@
+--- a/entrypoints/serve/utils/api_utils.py
++++ b/entrypoints/serve/utils/api_utils.py
+@@ -180,10 +180,10 @@
+             input_length,
+             max_model_len if limit == -1 else limit,
+         )
+-    if max_model_len < input_length:
++    if max_model_len <= input_length:
+         raise ValueError(
+-            f"Input length ({input_length}) exceeds model's maximum "
+-            f"context length ({max_model_len})."
++            f"Input length ({input_length}) leaves no room to generate within "
++            f"the model's maximum context length ({max_model_len})."
+         )
+     model_max_tokens = max_model_len - input_length
+     platform_max_tokens = current_platform.get_max_output_tokens(input_length)
+@@ -193,7 +193,7 @@
+         else default_sampling_params.get("max_tokens")
+     )
+ 
+-    return min(
++    effective_max_tokens = min(
+         val
+         for val in (
+             model_max_tokens,
+@@ -203,6 +203,17 @@
+         )
+         if val is not None
+     )
++    if (
++        fallback_max_tokens is not None
++        and fallback_max_tokens > effective_max_tokens
++        and effective_max_tokens == model_max_tokens
++    ):
++        logger.info(
++            "Output allowance fitted to remaining context: requested=%s "
++            "effective=%s prompt=%s context=%s",
++            fallback_max_tokens, effective_max_tokens, input_length, max_model_len,
++        )
++    return effective_max_tokens
+ 
+ 
+ def get_non_default_args(args: Namespace | EngineArgs) -> dict[str, Any]:

@@ -36,6 +36,47 @@ class CatalogTests(unittest.TestCase):
     def test_input_variants(self):
         for suffix in ('/v1','/v1/models','/v1/chat/completions','/api/v1/models'):
             self.assertEqual(self.inspect({'/v1/models':{'data':[]}},'http://example.invalid:8000'+suffix)['base_url'],'http://example.invalid:8000/v1')
+    def test_authenticated_discovery_headers(self):
+        from unittest.mock import MagicMock
+        response=MagicMock()
+        response.status=200;response.headers={'Server':'fixture'}
+        response.read.return_value=b'{"data":[{"id":"protected-model"}]}'
+        response.__enter__.return_value=response
+        with patch.object(catalog.urllib.request,'urlopen',return_value=response) as request_call:
+            result=catalog.inspect_endpoint('http://example.invalid/v1','test-secret')
+        self.assertEqual(result['models'][0]['model_id'],'protected-model')
+        self.assertIsNone(result['error'])
+        self.assertEqual(request_call.call_count,4)
+        for call in request_call.call_args_list:
+            request=call.args[0]
+            self.assertEqual(request.get_method(),'GET')
+            self.assertEqual(request.get_header('Authorization'),'Bearer test-secret')
+        self.assertNotIn('test-secret',json.dumps(result))
+
+    def test_auth_errors_and_optional_probe_denial(self):
+        for status in (401,403):
+            def read(url):
+                return {'url':url,'status':status,'http_server':'fixture'}
+            with patch.object(catalog,'read_endpoint',side_effect=read):
+                result=catalog.inspect_endpoint('http://example.invalid/v1')
+            self.assertIn(f'HTTP {status}',result['error'])
+            self.assertTrue(result['reachable'])
+        def read(url):
+            return {'url':url,'status':200 if url.endswith('/v1/models') else 401,
+                    'http_server':'fixture','data':{'data':[{'id':'ok'}]} if url.endswith('/v1/models') else None}
+        with patch.object(catalog,'read_endpoint',side_effect=read):
+            self.assertIsNone(catalog.inspect_endpoint('http://example.invalid/v1')['error'])
+
+    def test_http_error_keeps_server_and_hides_body(self):
+        import io
+        from unittest.mock import MagicMock
+        error=catalog.urllib.error.HTTPError('http://example.invalid',401,'Unauthorized',{'Server':'uvicorn'},io.BytesIO(b'secret'))
+        with patch.object(catalog.urllib.request,'urlopen',side_effect=error):
+            result=catalog.read_endpoint('http://example.invalid')
+        self.assertEqual(result['http_server'],'uvicorn')
+        self.assertEqual(result['status'],401)
+        self.assertNotIn('secret',json.dumps(result))
+
     def test_lms_variants_and_alias(self):
         disk=[{'model':{'modelKey':'vendor/model','type':'llm','maxContextLength':262144},'variants':[{'modelKey':'vendor/model@q4'},{'modelKey':'vendor/model@q8'}]}]
         rows=catalog.normalize_lms(disk,[{'modelKey':'vendor/model','selectedVariant':'vendor/model@q4','identifier':'my-alias','contextLength':131072}])
@@ -55,7 +96,7 @@ class ModelStoreTests(unittest.TestCase):
             root=Path(tmp);old={'models':[{'name':'existing','model':'model','base_url':'http://host/v1','max_tokens':262144,'extra':{'custom':[1,2]}}],'owner_field':{'keep':True}}
             original=json.dumps(old).encode();(root/'models.json').write_bytes(original)
             _,revision=model_store.read(root)
-            entry={'name':'new','model':'ds4','base_url':'http://other/v1','max_tokens':1048576,'custom':{'preserve':True}}
+            entry={'name':'new','model':'fixture','base_url':'http://other/v1','max_tokens':1048576,'context_window':1048576,'output_budget':'explicit','custom':{'preserve':True},'sampling_era':'explicit-v1','inference_profile':{'mapping_version':'request-api-v1','backend':'omlx','backend_version':'fixture','lane':'standard','route':{'kind':'direct'},'values':{'temperature':0,'top_p':0.95}}}
             result=model_store.add(root,entry,hourglass.validate_models,revision)
             saved=json.loads((root/'models.json').read_text());self.assertEqual(saved['models'][0],old['models'][0]);self.assertEqual(saved['owner_field'],old['owner_field']);self.assertEqual(saved['models'][1],entry)
             self.assertEqual((root/result['backup']/'models.json').read_bytes(),original)

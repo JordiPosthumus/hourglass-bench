@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "scope": "Full prompts with an output upper bound fitted to remaining context",
+  "tested_snapshots": {
+    "vllm": "0.1.dev20073+g8e685d198 with the separately installed Qwen request contract",
+    "omlx": "0.6.4 with the separately installed Qwen output contract"
+  },
+  "files": [
+    {
+      "backend": "vllm",
+      "target": "renderers/params.py",
+      "patch": "vllm-renderers_params.py.patch",
+      "before_sha256": "b9667d21614cc474e881124b44762db6a1d43efe21b9ec0350fc5c80229bf67d",
+      "after_sha256": "8358ee752d1bcd8db483e83ef44cdd9cf96f7839f1d081737f970835bb0ad940",
+      "optional_if_absent": false
+    },
+    {
+      "backend": "vllm",
+      "target": "entrypoints/serve/utils/api_utils.py",
+      "patch": "vllm-entrypoints_serve_utils_api_utils.py.patch",
+      "before_sha256": "14ca06f57d110b05f561812f84115bd7c380ad18e0fd0d0b2acaaab0e21fdd74",
+      "after_sha256": "3ef9335c89fe447b408bd9fbf960587fa3fe6715c3152fe65419ab3a9f9aea1b",
+      "optional_if_absent": false
+    },
+    {
+      "backend": "vllm",
+      "target": "entrypoints/openai/chat_completion/qwen_contract.py",
+      "patch": "vllm-entrypoints_openai_chat_completion_qwen_contract.py.patch",
+      "before_sha256": "8f5a97c52f7400ecec63a30b1db1cb83ef9d03ec1cc83d967cda85d7febc9e58",
+      "after_sha256": "71ce3f6106b30bf03f6d7d3e5c9908b65734f4d5eb12199bd50e2fc8b01b69f8",
+      "optional_if_absent": true
+    },
+    {
+      "backend": "omlx",
+      "target": "qwen_contract.py",
+      "patch": "omlx-qwen_contract.py.patch",
+      "before_sha256": "2c81d2ff77749cea713e543d246dad5847cc918864d42c84f273aca6521a2a85",
+      "after_sha256": "7c5122d8f78ac3cd60d4cc8ec51dd47b1277fcfc34d93ca54d6a614ae3769ce9",
+      "optional_if_absent": false
+    }
+  ]
+}

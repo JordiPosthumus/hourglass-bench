@@ -2,6 +2,12 @@
 
 This guide is for future maintainers and agents. Read the repository's working agreements and the current source before changing a live installation. Preserve established model capabilities and private benchmark data.
 
+## Server and harness contracts
+
+Read [Issue for Agents](issues-for-agents.md), [the replayable output-space patch](../backend-patches/output-space/README.md), [server specifics](server-specifics-guide.md) and [inference profiles](inference-profiles.md) before changing a backend. The patch helper checks exact source hashes, backs up changes and supplies rollback; rebuilding a deployment still requires preserving its existing image, pins, kernels, launch flags and prerequisite patches. Validate complete prompt handling, intentional small limits and a real cold-to-warm cache hit.
+
+Hourglass 3.0.0 uses native Pi declarations for new profiles; historical profiles retain their saved behavior. The headline score is independently versioned as `linear-auc-100-v1`. [The scoring specification](results-history.md#hourglass-score) defines the scale and separates live forecasts from measured exports.
+
 ## Safe model updates
 
 1. Inspect `/api/state`. Wait until the running and pending queues are empty before changing the inference server or restarting the controller, unless the owner explicitly authorizes interruption.
@@ -88,6 +94,8 @@ git diff --cached --check
 For adapter, tool or shutdown changes, run applicable native fixtures:
 
 ```sh
+python3 tests/pi_native_integration.py
+python3 tests/pi_explicit_integration.py
 python3 tests/pi_integration.py
 python3 tests/pi_no_turn_limit_integration.py
 python3 tests/pi_stop_integration.py

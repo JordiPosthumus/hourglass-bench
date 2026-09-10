@@ -1,5 +1,7 @@
 # Agent setup recipe
 
+For Hourglass 3.0.0, also read [inference profiles](inference-profiles.md) and [Issue for Agents](issues-for-agents.md). New configurations use native Pi model declarations. Record the actual backend/build, context and output capacities, optional thinking choice and any required route. The example is a format reference; verify its fields before using it. Preserve existing historical profiles unless the owner authorizes migration.
+
 Use a coding agent to perform this checklist in order. Your setup agent installs and configures Hourglass. The model being evaluated runs through the frozen Pi harness; it does not inherit your setup agent's context or tools.
 
 ## 1. Inspect before changing anything

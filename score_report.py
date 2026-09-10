@@ -76,11 +76,12 @@ def build(root, job, rows, manifest):
     if manifest.get('id'):report['display_name']=run_editor.display(root,manifest)['name']
     if job.get('repair'):report['display_name']+=' · Repaired'
     elif report['caveats']:report['display_name']+=' ⚠'
+    report.update({key:h[key] for key in ('score_version','hourglass_score','total_available_points','score_denominator_point_seconds')})
     report['auc']=report_charts.auc(points,final=h['state']=='final')
     report['auc']['scoring_policy']=h['scoring_policy']
     star='*' if credits else ''
     svg=report_charts.progress_chart([report])
-    readme=f"# Hourglass result\n\n![Score graph](score.svg)\n\nModel: {report['model'].replace(chr(10),' ')}\n\n**{h['weighted_points']:.2f} weighted points{star}**, {h['points']} correct. Status: **{h['state']}**.\n\nFixed difficulty weights: charts 1–10 → 1–2; games 1–5 → 1–2; math high school / undergraduate / graduate → 1 / 1.5 / 2. One award per question within 3,600 active seconds.\n\nBank fingerprint: `{report['bank_fingerprint']}`. Compare the same bank, order, repeat policy, model settings and hardware. Inference machine: {hardware['label']}. Model configuration disclosure has not been supplied.\n\n[Aggregate data](report.json)\n\nHardware source: {hardware.get('source','unknown')}.\n"
+    readme=f"# Hourglass result\n\n![Score graph](score.svg)\n\nModel: {report['model'].replace(chr(10),' ')}\n\n**Hourglass score: {h['hourglass_score']:.1f}{star}**, {h['points']} correct. Status: **{h['state']}**.\n\nFixed difficulty weights: charts 1–10 → 1–2; games 1–5 → 1–2; math high school / undergraduate / graduate → 1 / 1.5 / 2. One award per question within 3,600 active seconds.\n\nBank fingerprint: `{report['bank_fingerprint']}`. Compare the same bank, order, repeat policy, model settings and hardware. Inference machine: {hardware['label']}. Model configuration disclosure has not been supplied.\n\n[Aggregate data](report.json)\n\nHardware source: {hardware.get('source','unknown')}.\n"
     if report['caveats']:
         readme+='\n## Result caveats\n\n'+'\n\n'.join('**'+c['label']+'** ('+str(c['attempts'])+' attempt(s)): '+c['message'] for c in report['caveats'])+'\n'
     if scoring_policy.is_net(h['scoring_policy']):readme+=f"\nNet scoring: +1–2 for a correct question, −1 for an incorrect final submission, zero for unsupported vision, timeout or no final submission. Gross: {h['gross_points']}; penalties: {h['penalty_points']}; abstained: {h['abstained_questions']}. A correct repeat supersedes an earlier incorrect answer; penalties never accumulate for repeated wrong answers to one question.\n"
@@ -89,8 +90,7 @@ def build(root, job, rows, manifest):
     readme+='\n### Recorded inference hardware\n\n```json\n'+json.dumps(hardware,indent=2)+'\n```\n'
     readme+=f"\nUnsupported vision questions within the scoring window: **{report['unsupported_vision_questions']}**. These earn zero points; no extra penalty is applied. Text and vision subtotals are reported separately.\n"
     readme+='\n## Experiment configuration\n\n'+('\n'.join('- '+k.replace('_',' ')+': '+html.escape(v) for k,v in report['experiment'].items()) or 'Configuration not recorded.')+'\n\nThese evaluations use private questions. Only aggregate results and explicitly recorded public configuration labels are published.\n'
-    a=report['auc']['point_minutes'] if report['auc']['state']=='final' else None
-    readme+='\nAUC companion: '+(f'**{a:.2f} weighted point-minutes**' if a is not None else 'pending a final run')+'. This rewards points earned earlier; it does not replace the weighted one-hour score. It integrates the exact stepped score. There is no maximum or percentage normalization.\n'
+    readme+=f"\nHourglass score (`linear-auc-100-v1`) = AUC point-minutes / (0.3 × all available weighted points). **100** represents all points earned steadily over one hour; faster correct work can exceed 100, approaching 200. Wrong answers reduce the curve. Partial scores include only accumulated area, with no extrapolation. Bank total: {h['total_available_points']}; denominator: {h['score_denominator_point_seconds']/60:.6f} point-minutes. Raw net/gross points and AUC remain in the aggregate data.\n"
     if job.get('repair'):readme+='\n**Repaired run.** '+repair_runs.NOTE+' Source: '+job['repair']['source_evaluation_id']+'.\n'
     if credits:readme+='\n<sub>*Clock adjusted to exclude a harness interruption.</sub>\n'
     if job.get('repair'):report['repair']={k:job['repair'][k] for k in ('policy','source_evaluation_id','source_version','source_elapsed_s','refunded_s','base_elapsed_s','note')}
@@ -162,14 +162,14 @@ def quadrants(reports, scope='same'):
 
 
 def ranking(reports, scope='same'):
-    ranked=sorted(compatible_reports(reports,scope),key=lambda r:(-r['weighted_points'],r['model'],hardware_label(r),r.get('machine_key','')))
-    width=1100;height=180+len(ranked)*86;maximum=max(1,max(abs(r['weighted_points']) for r in ranked))
+    ranked=sorted([r for r in compatible_reports(reports,scope) if r.get('hourglass_score') is not None],key=lambda r:(-r['hourglass_score'],r['model'],hardware_label(r),r.get('machine_key','')))
+    width=1100;height=180+len(ranked)*86;maximum=max(1,max((abs(r['hourglass_score']) for r in ranked),default=0))
     out=[f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}"><rect width="{width}" height="{height}" fill="#101722"/><g font-family="sans-serif" fill="#eaf0fa">',
          '<text x="36" y="42" font-size="26">Hourglass · score ranking</text>',
-         f'<text x="36" y="70" font-size="14">{html.escape("All hardware" if scope=="all" else hardware_label(reports[0]))} · weighted points · higher is better</text>',
-         '<text x="36" y="95" font-size="12" fill="#aebdd0">Selected run + latest matching run per model and machine. Partial and running scores are not extrapolated.</text>']
+         f'<text x="36" y="70" font-size="14">{html.escape("All hardware" if scope=="all" else hardware_label(reports[0]))} · Hourglass score · 100 = steady perfect completion in one hour</text>',
+         '<text x="36" y="95" font-size="12" fill="#aebdd0">Only runs with the calibrated metric are ranked. Partial and running scores are accumulated, not extrapolated.</text>']
     for i,r in enumerate(ranked):
-        y=132+i*86;label=html.escape(r['model']);hardware=html.escape(hardware_label(r)+' · '+report_charts.rules_label(r));value=r['weighted_points'];star='*' if r.get('clock_adjustment_seconds') else ''
-        out.append(f'<text x="36" y="{y}" font-size="14">{i+1}. {label}</text><text x="36" y="{y+20}" font-size="12" fill="#aebdd0">{hardware}</text><rect x="{451+min(0,value)/maximum*415:.2f}" y="{y+30}" width="{abs(value)/maximum*415:.2f}" height="20" rx="3" fill="#74e5c4"><title>{label} · {hardware} · {value:.2f} points · {html.escape(r["state"])}</title></rect><text x="{463+value/maximum*415:.2f}" y="{y+45}" font-size="13">{value:.2f}{star} · {html.escape(r["state"])}</text>')
-    out.append(f'<text x="36" y="{height-18}" font-size="11" fill="#aebdd0">Same bank and major release; recorded scoring and deadlines may differ. *Clock adjustment, when marked.</text></g></svg>')
+        y=132+i*86;label=html.escape(r['model']);hardware=html.escape(hardware_label(r)+' · '+report_charts.rules_label(r));value=r['hourglass_score'];star='*' if r.get('clock_adjustment_seconds') else ''
+        out.append(f'<text x="36" y="{y}" font-size="14">{i+1}. {label}</text><text x="36" y="{y+20}" font-size="12" fill="#aebdd0">{hardware}</text><rect x="{451+min(0,value)/maximum*415:.2f}" y="{y+30}" width="{abs(value)/maximum*415:.2f}" height="20" rx="3" fill="#74e5c4"><title>{label} · {hardware} · {value:.1f} points · {html.escape(r["state"])}</title></rect><text x="{463+value/maximum*415:.2f}" y="{y+45}" font-size="13">{value:.1f}{star} · {html.escape(r["state"])}</text>')
+    out.append(f'<text x="36" y="{height-18}" font-size="11" fill="#aebdd0">Compare the same bank, order and rules; labels disclose differences. *Clock adjustment, when marked.</text></g></svg>')
     return {'ranking.svg':''.join(out)}

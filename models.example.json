@@ -1,12 +1,23 @@
 {
-  "_comment": "Replace the placeholder ID and verify these illustrative limits against your loaded server. This file does not load or configure a model server.",
+  "_comment": "Replace the placeholder ID and verify these illustrative limits against your loaded server. This file does not load or configure a model server. This example declares LM Studio; select the actual backend/build and review native Pi thinking and compatibility in Model settings. The capacities are illustrative.",
   "models": [
     {
       "name": "my-local-model",
       "base_url": "http://127.0.0.1:1234/v1",
       "model": "REPLACE_WITH_SERVER_MODEL_ID",
       "context_window": 32768,
-      "max_tokens": 8192
+      "max_tokens": 8192,
+      "sampling_era": "pi-native-v1",
+      "output_budget": "pi",
+      "inference_profile": {
+        "mapping_version": "pi-native-v1",
+        "backend": "lmstudio",
+        "backend_version": "REPLACE_WITH_DEPLOYED_BUILD",
+        "route": {
+          "kind": "direct"
+        }
+      },
+      "pi_model": {}
     }
   ]
 }

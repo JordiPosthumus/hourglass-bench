@@ -1,0 +1,34 @@
+--- a/qwen_contract.py
++++ b/qwen_contract.py
+@@ -2,7 +2,11 @@
+ from __future__ import annotations
+ 
+ import math
++import logging
+ from collections.abc import Mapping
++
++
++logger = logging.getLogger(__name__)
+ 
+ 
+ class QwenContractError(ValueError):
+@@ -83,12 +87,16 @@
+ 
+ def resolve_qwen_output_budget(prompt_tokens: int, output_tokens: int,
+                                context_window: int, explicit: bool) -> int:
+-    """Explicit oversubscription errors; omitted defaults use remaining room."""
++    """Fit the output upper bound to the space after the complete prompt."""
+     if output_tokens <= 0:
+         raise QwenContractError("max_tokens", "must be greater than zero")
+     remaining = context_window - prompt_tokens
+     if remaining < 1:
+         raise QwenContractError("messages", f"prompt uses {prompt_tokens} tokens; context {context_window} must leave room for output")
+-    if explicit and output_tokens > remaining:
+-        raise QwenContractError("max_tokens", f"requested {output_tokens} output tokens but only {remaining} remain after {prompt_tokens} prompt tokens in context {context_window}")
++    if output_tokens > remaining:
++        logger.info(
++            "Output allowance adjusted to remaining context: requested=%d, "
++            "effective=%d, prompt=%d, context=%d, explicit=%s",
++            output_tokens, remaining, prompt_tokens, context_window, explicit,
++        )
+     return min(output_tokens, remaining)

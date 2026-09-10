@@ -1,5 +1,7 @@
 # Method: waves of questions
 
+The headline metric is `linear-auc-100-v1`: net-point AUC in active minutes divided by 0.3 times the frozen bank’s available weighted points. A score of 100 represents steady perfect weighted-point progress over one hour. See [the score definition](results-history.md#hourglass-score).
+
 Hourglass measures how much correct work an agent completes within one hour of active wall time. Questions arrive in a fixed sequence of difficulty waves, with subjects mixed throughout. The aim is to expose even an early portion of a run to different kinds of work and different difficulty levels.
 
 Difficulty labels describe the authored bank. They are provisional, not measured probabilities of success. A question that takes a long time may reveal hard reasoning, inefficient verification, slow inference, or a tool problem; duration alone cannot distinguish them.

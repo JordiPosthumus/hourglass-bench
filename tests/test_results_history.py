@@ -6,7 +6,7 @@ import score_publisher as p
 
 class HistoryTests(unittest.TestCase):
  def report(self,key='a',**kw):
-  return dict(model='demo',run_key=key,run_date='2026-01-01T00:00:00Z',experiment={'model_family':'Demo','configuration':key},hardware={'label':'Test hardware'},machine_key='machine',bank_fingerprint='bank',scoring='weighted-hour-v1',timing_policy='hour-v1',benchmark_version='v1',execution={'repeat':1},state='final',weighted_points=4,raw_correct=3,active_seconds=3600,efficiency={'token_data_complete':True,'accuracy':.75,'scored_answers':4,'median_output_tokens':1000,'answers_per_active_minute':.5},curve=[{'seconds':0,'weighted':0},{'seconds':3600,'weighted':4}],**kw)
+  return dict(model='demo',run_key=key,run_date='2026-01-01T00:00:00Z',experiment={'model_family':'Demo','configuration':key},hardware={'label':'Test hardware'},machine_key='machine',bank_fingerprint='bank',scoring='weighted-hour-v1',timing_policy='hour-v1',benchmark_version='v1',execution={'repeat':1},state='final',score_version='linear-auc-100-v1',hourglass_score=8.11,total_available_points=10,weighted_points=4,raw_correct=3,active_seconds=3600,efficiency={'token_data_complete':True,'accuracy':.75,'scored_answers':4,'median_output_tokens':1000,'answers_per_active_minute':.5},curve=[{'seconds':0,'weighted':0},{'seconds':3600,'weighted':4}],**kw)
  def test_labels_are_explicit_and_bounded(self):
   with tempfile.TemporaryDirectory() as d:
    root=Path(d);(root/'evaluations').mkdir()
@@ -90,3 +90,10 @@ class AUCTests(unittest.TestCase):
   self.assertEqual(json.dumps(curve),before)
 
 if __name__=='__main__':unittest.main()
+
+class LegacyScoreTests(unittest.TestCase):
+ def test_legacy_points_are_not_relabelled_as_calibrated_scores(self):
+  r=HistoryTests().report();r.pop('hourglass_score');r.pop('score_version')
+  files=h.catalog_files([],r,'legacy')
+  self.assertIn('Not calculated',files['reports/README.md'])
+  self.assertNotIn('protocol ',h.evolution([r]))

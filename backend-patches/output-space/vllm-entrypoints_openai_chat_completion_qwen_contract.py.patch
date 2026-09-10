@@ -1,0 +1,29 @@
+--- a/entrypoints/openai/chat_completion/qwen_contract.py
++++ b/entrypoints/openai/chat_completion/qwen_contract.py
+@@ -2,6 +2,9 @@
+ import math
+ from vllm.exceptions import VLLMValidationError
+ from vllm.sampling_params import _MAX_TEMP
++from vllm.logger import init_logger
++
++logger = init_logger(__name__)
+ 
+ 
+ def _error(name, message):
+@@ -73,5 +76,15 @@
+     if not is_qwen(request.model):
+         return
+     requested = request.max_completion_tokens if request.max_completion_tokens is not None else request.max_tokens
++    if requested is not None and requested <= 0:
++        _error("max_tokens", "must be greater than zero")
++    if available < 1:
++        _error("max_tokens", "prompt/context limits leave no room for output")
+     if requested is not None and requested > available:
+-        _error("max_tokens", f"requested {requested} output tokens but only {available} are available after prompt/context limits; reduce the explicit request or omit it to use the remaining budget")
++        # The shared resolver already counted the complete rendered input and
++        # applied the requested, context, server and platform upper bounds.
++        # SamplingParams and BeamSearchParams receive that resolved value.
++        logger.info(
++            "Qwen output upper bound resolved: requested=%d, effective=%d",
++            requested, available,
++        )

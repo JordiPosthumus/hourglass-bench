@@ -6,6 +6,7 @@ import math
 import shutil
 import threading
 import uuid
+from pathlib import Path
 import run_tracking
 import diagnostics
 import task_identity
@@ -39,6 +40,7 @@ def write(path, value):
 
 
 def evaluation_manifest(root, job, version, config, legacy=False):
+    if not legacy:__import__('inference_profiles').request_settings(config)
     expected = []
     for tid in sorted(job['tasks']):
         raw = (root / 'tasks' / tid / 'task.json').read_bytes()
@@ -68,6 +70,14 @@ def evaluation_manifest(root, job, version, config, legacy=False):
                 'stop_after_wrong':job.get('stop_after_wrong'), 'order':job['tasks'],
                 'created': job['created'], 'started': job.get('started'), 'state': job['state'],
                 'config_hash': digest(config), 'model_config_snapshot':json.loads(json.dumps(config)), 'legacy_time_match': legacy}
+    if config.get('sampling_era') in ('explicit-v1','pi-native-v1'):
+        adapter_root=Path(__file__).resolve().parent
+        manifest['inference_adapter']={key:hashlib.sha256((adapter_root/name).read_bytes()).hexdigest() for key,name in [('harness_sha256','harness/pi.mjs'),('settings_adapter_sha256','harness/inference-settings.mjs'),('pi_lock_sha256','harness/pi-lock.json')]}
+        if __import__('stock_pi').enabled(config):
+            manifest['inference_adapter']['native_profile_sha256']=hashlib.sha256((adapter_root/'stock_pi.py').read_bytes()).hexdigest()
+            manifest['pi_model_snapshot']=__import__('stock_pi').model_definition(config)
+            manifest['pi_session_baseline']='native Pi 0.85.1'
+            manifest['pi_thinking_level']=config.get('pi_thinking_level', 'Pi default')
     for key in ('question_timeout_s','question_timeout_policy','scoring_policy'):
         if key in job:manifest[key]=job[key]
     manifest['hardware']=hardware_records.capture(root,config)

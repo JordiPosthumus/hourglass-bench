@@ -69,3 +69,34 @@ class HourScoreTests(unittest.TestCase):
         r=self.calculate({'started':None,'state':'pending'},[])
         self.assertEqual(r['state'],'not_started')
         self.assertEqual(r['remaining_s'],3600)
+
+
+class CalibratedScoreTests(unittest.TestCase):
+    calculate = HourScoreTests.calculate
+    def test_reference_midpoint_and_early_finish(self):
+        # Equal area to a continuous linear ramp from 0 to W over the hour.
+        r=self.calculate({'state':'completed','ended':2800},[row(t,2800) for t in 'abc'])
+        self.assertEqual(r['hourglass_score'],100)
+        self.assertEqual(r['total_available_points'],3)
+        self.assertEqual(r['score_denominator_point_seconds'],54)
+        fast=self.calculate({'state':'completed','ended':1900},[row(t,1900) for t in 'abc'])
+        self.assertEqual(fast['hourglass_score'],150)
+        immediate=self.calculate({'state':'completed','ended':1000},[row(t,1000) for t in 'abc'])
+        self.assertEqual(immediate['hourglass_score'],200)
+
+    def test_signed_area_retries_and_pauses(self):
+        job={'state':'stopped','ended':12800,'scoring_policy':'net-hour-v2',
+             'active_intervals':[{'start':1000,'end':1900},{'start':10100,'end':12800}]}
+        r=self.calculate(job,[row('a',1900,False),row('a',11000),row('a',12000),row('b',12800,False)])
+        # a: -1 for 900 active seconds, then +1 for 1800. b at deadline adds no area.
+        self.assertEqual(r['auc_point_seconds'],900)
+        self.assertAlmostEqual(r['hourglass_score'],16.666667)
+
+    def test_live_area_not_extrapolated_and_unavailable_withheld(self):
+        r=self.calculate({},[row('a',1600)],2200)
+        self.assertEqual(r['auc_point_seconds'],600)
+        self.assertAlmostEqual(r['hourglass_score'],11.111111)
+        self.assertEqual(r['state'],'in_progress')
+        r=self.calculate({'results_reset':'reset'},[row('a',1600)],2200)
+        self.assertIsNone(r['hourglass_score'])
+        self.assertIsNone(r['auc_point_seconds'])

@@ -9,7 +9,7 @@ import report_charts
 def group_key(report):
     config=report.get('configuration_key')
     if not config or report.get('state')!='final' or report.get('is_current_run') or report.get('repair') or report.get('caveats'):return None
-    fields=('benchmark_version','bank_fingerprint','machine_key','scoring','timing_policy','question_timeout_policy','execution')
+    fields=('benchmark_version','bank_fingerprint','machine_key','scoring','timing_policy','question_timeout_policy','execution','score_version','total_available_points')
     return json.dumps([config,*[report.get(k) for k in fields],report.get('experiment',{}).get('parameters')],sort_keys=True)
 
 
@@ -27,7 +27,7 @@ def average(reports):
         result.update(run_key=hashlib.sha256(key.encode()).hexdigest()[:24],repeat_count=n,
                       member_run_keys=[r['run_key'] for r in members],is_current_run=False)
         result['display_name']=(result.get('display_name') or result['model'])+f' · mean of {n}'
-        for field in ('weighted_points','raw_correct','gross_points','net_points','incorrect_questions','abstained_questions','penalty_points','completed_questions','clock_adjustment_seconds','unsupported_vision_questions'):
+        for field in ('hourglass_score','weighted_points','raw_correct','gross_points','net_points','incorrect_questions','abstained_questions','penalty_points','completed_questions','clock_adjustment_seconds','unsupported_vision_questions'):
             if all(isinstance(r.get(field),(float,int)) for r in members):result[field]=statistics.mean(r[field] for r in members)
         times=sorted({0,3600,*[p['seconds'] for r in members for p in r['curve']]})
         def value(r,t,field,before):

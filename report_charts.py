@@ -1,4 +1,4 @@
-"""Presentation-only step charts and an independently versioned AUC companion."""
+"""Step charts and raw AUC evidence for the calibrated Hourglass score."""
 import html
 import math
 
@@ -92,9 +92,9 @@ def progress_chart(reports,scope='same',legend=True):
             short=name if len(name)<=57 else name[:54]+'…'
             meta=r.get('hardware',{}).get('label','Hardware not recorded')+' · '+rules_label(r)
             short_meta=meta if len(meta)<=88 else meta[:85]+'…'
-            detail=f'{r["weighted_points"]:.2f}{star} points · {r.get("raw_correct",0)} correct · {r.get("state","unknown")}'
+            detail=f'{r["weighted_points"]:.1f}{star} points · {r.get("raw_correct",0)} correct · {r.get("state","unknown")}'
             out.append(f'<path d="M{xx} {yy-5}h22" stroke="{color}" stroke-width="3"{dash}/><text x="{xx+30}" y="{yy}" font-size="12" font-weight="600"><title>{esc(name)}</title>{esc(short)}</text><text x="{xx+30}" y="{yy+18}" font-size="11" fill="#71827a">{esc(detail)}</text><text x="{xx+30}" y="{yy+34}" font-size="10" fill="#71827a"><title>{esc(r.get("hardware",{}).get("label","Hardware not recorded"))} · {esc(rules_label(r))}</title>{esc(short_meta)}</text>')
-    out.append(f'<text x="40" y="{height-27}" font-size="11" fill="#71827a">Each step marks the score after a final submission. AUC is the area under this exact step graph.</text>')
+    out.append(f'<text x="40" y="{height-27}" font-size="11" fill="#71827a">Each step marks the score after a final submission. The Hourglass score scales the area under this graph; 100 = steady perfect completion in one hour.</text>')
     if any(r.get('caveats') for r in reports):out.append(f'<text x="40" y="{height-28}" font-size="11" fill="#986810">⚠ Includes runs with diagnostic exposure; scores retained, timing impact unknown. See run caveats.</text>')
     if any(r.get('clock_adjustment_seconds') for r in reports):out.append(f'<text x="40" y="{height-10}" font-size="10" fill="#71827a">*Includes a disclosed clock adjustment.</text>')
     out.append('</g></svg>');return ''.join(out)

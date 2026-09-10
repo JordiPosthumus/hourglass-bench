@@ -28,14 +28,24 @@ The x-axis orders dated evaluations; numbered points map to the configuration ro
 
 The JSON catalog supports future views such as per-configuration histories, speed versus accuracy, or confidence intervals without changing the private question bank or losing previous runs. The catalog intentionally does not contain task identifiers or raw inference settings scraped from an endpoint.
 
-## Score curves and AUC
+## Hourglass score
 
-The graph stays flat between completions and steps up when points are earned. The AUC companion integrates this exact step function. Its version is `weighted-step-auc-v1`.
+The headline metric is `linear-auc-100-v1`. Let W be the sum of the frozen question weights (one award per question, regardless of repeats). Let S(t) be accumulated net points after each final submission, with t measured in active minutes.
 
-`AUC (weighted point-minutes) = integral(score(t), t=0..60 active minutes)`
+`Hourglass score = integral(S(t), t=0..60) / (0.3 × W)`
 
-There is no assumed maximum score. Raw AUC is uncapped. Dividing AUC by 60 gives the mean weighted score during the hour, also uncapped.
+A reference machine earns weighted points continuously and linearly from zero to W over sixty minutes. Its triangular area is 30 × W, giving a score of exactly 100. This is linear **weighted-point progress**, not necessarily one question every equal interval. Real runs retain their exact step curves, without interpolation between answers.
 
-AUC rewards solving questions earlier. It remains a companion to the primary score (weighted points after one hour), because it adds an extra preference for early throughput and question order. An official full-hour AUC is withheld for partial runs; accumulated raw area remains in the data. If every planned question has already finished, the earned score is fixed for the rest of the hour.
+Hourglass measures correct work and how soon it becomes available. Faster models remain distinguishable even when they solve the entire bank. A faster, less accurate run can outscore a slower, more accurate run; early mistakes also reduce the area for longer. Fixed bank, order, scoring rules, hardware and execution conditions matter. Normalization does not make different banks equally difficult or directly comparable.
 
-Reference models do not currently set this scale. Any future scale based on pinned models should freeze the reference runs, bank, protocol and calibration revision; adding or changing a reference must not silently rewrite old reported scores. Raw score and raw AUC should always remain available.
+100 is a reference, not a percentage or ceiling. Instant perfect completion would score 200. Negative net curves can produce negative scores. Once every planned attempt has finished, the final net points carry through the remainder of the hour. Live/partial scores contain only area accumulated so far, using the same full-hour denominator; they are labelled and never extrapolated. Unreliable clocks or reset results withhold the score. Pauses contribute no area; resumed attempts retain time already spent.
+
+Raw weighted points, counts and `weighted-step-auc-v1` AUC stay in the data for audit. The UI and ranking use one headline Hourglass score. Reports save the metric version, total available points and denominator. Legacy published snapshots remain unchanged; missing normalized scores are not replaced with raw points or guessed denominators. Equivalent-repeat averages include the metric version and bank total in their grouping.
+
+## Live prediction
+
+The run panel shows **Predicted final Hourglass Score** after at least one correct or incorrect answer while the one-hour result is unfinished. For a paused/interrupted run, the label explains that the estimate assumes resuming. Before the first answer it shows the measured score with a waiting note; a final run shows **Hourglass Score**. All displays use one decimal.
+
+This is a display-only forecast. Average active time per resolved question estimates future completion intervals. Observed correct and incorrect fractions estimate rewards, using the remaining questions’ total weight; timeouts and unsupported questions contribute zero reward while counting toward observed pace. Predicted submissions are evenly spaced steps, stop when the bank is exhausted, and only earn area through the sixty-minute deadline. Existing measured area is retained. The forecast is uncertain, especially after one question, and later difficulty or server speed can change it.
+
+Rankings, exports and published scores remain measured AUC; no prediction replaces a saved result. The toolbar keeps New run, Resume/Stop, Run editor and Clear run. Duplicate record/publish shortcuts and repair/reset controls are removed. Logs remain available in Run activity. Run editor contains hardware and sampling details; older server-settings records remain readable there. Publishing uses its dedicated tab and the selected run.

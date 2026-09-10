@@ -31,7 +31,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 TASKS, RESULTS, SANDBOX = ROOT / "tasks", ROOT / "results", ROOT / "sandboxes"
 REAL_HOME = str(Path.home())
-BENCHMARK_VERSION = "2.7.2"
+BENCHMARK_VERSION = "3.0.0"
 
 def requires_vision(task):
     return task.get("kind") == "chart-vqa" or bool(task.get("image") or task.get("assets"))
@@ -607,14 +607,16 @@ def validate_models(doc):
             u = urllib.parse.urlparse(m["base_url"])
             if u.scheme not in ("http", "https") or not u.netloc:
                 errors.append(f"Model {i+1}: base_url must be an HTTP(S) URL")
-        if m.get("output_budget", "explicit") not in ("explicit", "server"):
-            errors.append(f"Model {i+1}: output_budget must be explicit or server")
+        if m.get("output_budget", "explicit") not in ("explicit", "server", "pi"):
+            errors.append(f"Model {i+1}: output_budget must be pi, explicit or server")
         if "supports_vision" in m and type(m["supports_vision"]) is not bool:
             errors.append(f"Model {i+1}: supports_vision must be true or false")
         if "hardware" in m and (not isinstance(m["hardware"], str) or len(m["hardware"])>160 or any(ord(c)<32 for c in m["hardware"])):
             errors.append(f"Model {i+1}: hardware must be a single line of text (up to 160 characters)")
         if "extra" in m and not isinstance(m["extra"], dict):
             errors.append(f"Model {i+1}: extra must be an object")
+        try:__import__('inference_profiles').request_settings(m)
+        except ValueError as exc:errors.append(f'Model {i+1}: {exc}')
     return errors
 
 def cmd_run(args):

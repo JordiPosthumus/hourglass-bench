@@ -14,6 +14,9 @@ import calibration
 import model_scale
 import model_catalog
 import task_identity
+import inference_profiles
+import recommendation_import
+import profile_export
 import model_store
 import run_tracking
 import settings_records
@@ -218,8 +221,8 @@ def state():
             'model_configs':doc.get('models',[]),'models_json':json.dumps(doc,indent=2),'models_revision':models_revision,'model_library_available':True,
             'model_errors':hourglass.validate_models(doc),'results':rows,
             'endpoint_hardware':endpoint_hardware.snapshot(ROOT,doc.get('models',[])),
-            'calibration_available':True,'benchmark_version':hourglass.BENCHMARK_VERSION,'harness':{'name':'pi','version':'0.85.1','temperature_policy':'server_default'},
-            'score_policy':{'version':hour_score.VERSION,'window_s':hour_score.WINDOW_S,'metric':'net_weighted_points_within_active_hour','scoring_policy':scoring_policy.NET},
+            'calibration_available':True,'benchmark_version':hourglass.BENCHMARK_VERSION,'harness':{'name':'pi','version':'0.85.1','temperature_policy':'native_model_declaration','default_baseline':'stock Pi'},
+            'score_policy':{'version':hour_score.VERSION,'window_s':hour_score.WINDOW_S,'metric':'linear-auc-100-v1','scoring_policy':scoring_policy.NET},
             'execution_policy':{'timeouts':True,'question_timeout_s':question_deadline.LIMIT_S,'question_timeout_policy':question_deadline.POLICY,'stop_after_wrong':run_tracking.STOP_AFTER_WRONG,'order':ORDER_POLICY},
             'provenance':read_json(ROOT/'provenance.json',{}),'jobs':jobs,
             'sandbox_available':shutil.which('sandbox-exec') is not None}
@@ -552,6 +555,7 @@ def _enqueue_reviewed(body,document):
     job={'scoring_policy':scoring_policy.NET,'id':uuid.uuid4().hex,'label':f'{model} · {len(tids)} tests','model':model,'tasks':tids,
          'repeat':repeat,'question_timeout_s':question_deadline.LIMIT_S,'question_timeout_policy':question_deadline.POLICY,'stop_after_wrong':run_tracking.STOP_AFTER_WRONG,'state':'pending','created':time.time(),'completed_tasks':0,'total_tasks':len(tids)}
     config=next(m for m in document['models'] if m['name']==model)
+    inference_profiles.request_settings(config)
     if body.get('task_bundles') is not None:job['reviewed_task_bundles']=body['task_bundles']
     with condition:
         if shutting_down:raise ValueError('The bench is shutting down. Restart it before starting a run.')
@@ -602,6 +606,18 @@ class H(BaseHTTPRequestHandler):
         if self.path=='/scores' or self.path.startswith('/scores/'):
             self.score_route('do_GET');return
         u=urlparse(self.path);q=parse_qs(u.query)
+        if u.path=='/api/inference-profiles':
+            self._json(inference_profiles.catalog());return
+        if u.path=='/api/tested-profile':
+            try:
+                manifest=saved_manifest(q.get('job',[''])[0])
+                data=profile_export.export(manifest,result_rows()).encode()
+                self.send_response(200);self.send_header('Content-Type','text/markdown; charset=utf-8')
+                self.send_header('Content-Disposition','attachment; filename=hourglass-'+manifest['id']+'-profile.md')
+                self.send_header('Content-Length',str(len(data)));self.send_header('Cache-Control','no-store')
+                self.send_header('X-Content-Type-Options','nosniff');self.end_headers();self.wfile.write(data)
+            except ValueError as exc:self._json({'error':str(exc)},400)
+            return
         if u.path=='/api/hardware-groups':
             self._json(hardware_groups.snapshot(ROOT));return
         if u.path=='/api/run-editor':
@@ -683,6 +699,13 @@ class H(BaseHTTPRequestHandler):
             b=json.loads(self.rfile.read(n)) if n else {}
             if not isinstance(b,dict):raise ValueError('Expected a JSON object')
             route=urlparse(self.path).path
+            if route=='/api/inference-profiles/pull':
+                self._json(recommendation_import.pull(b.get('repository'),b.get('revision'),b.get('lane')));return
+            if route=='/api/inference-profiles/validate':
+                entry=b.get('entry')
+                if not isinstance(entry,dict):raise ValueError('Enter an inference profile.')
+                mapped=inference_profiles.request_settings(entry)
+                self._json({'request_settings':mapped,'required':inference_profiles.required_fields(entry.get('inference_profile',{})) if mapped is not None else [],'provenance':inference_profiles.provenance(entry.get('inference_profile',{})) if mapped is not None else {}});return
             if route=='/api/shutdown':
                 if b.get('controller_instance')!=controller_instance:raise ValueError('The controller changed. Refresh its identity before stopping.')
                 request_shutdown(self.server)
@@ -736,7 +759,7 @@ class H(BaseHTTPRequestHandler):
                     result=endpoint_hardware.save(ROOT,model_document().get('models',[]),b)
                 self._json(result);return
             if route=='/api/model-library/server':
-                self._json(model_catalog.inspect_endpoint(b.get('base_url')));return
+                self._json(model_catalog.inspect_endpoint(b.get('base_url'),b.get('api_key')));return
             if route=='/api/models/add':
                 self._json(model_store.add(ROOT,b.get('entry'),hourglass.validate_models,b.get('revision')));return
             if route=='/api/models':

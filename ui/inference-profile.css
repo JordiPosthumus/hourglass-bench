@@ -1,0 +1,35 @@
+#inferenceProfileEditor [hidden] { display: none !important; }
+#inferenceProfileEditor { border-top: 1px solid #dde5df; margin-top: 24px; padding-top: 8px; }
+#inferenceProfileEditor small { color: #53645b; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+#ip-source-status { overflow-wrap: anywhere; }
+#ip-proposal table { width: 100%; font-size: 13px; }
+#ip-proposal th, #ip-proposal td { padding: 8px; text-align: left; vertical-align: top; }
+.model-add-dialog .model-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.model-add-dialog select { max-width: 100%; width: 100%; box-sizing: border-box; }
+.ip-recommendation { border: 1px solid #dce5dd; border-radius: 10px; padding: 18px; margin: 18px 0; background: #fbfcfa; }
+.ip-recommendation-head { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.ip-recommendation-head h4 { margin: 0 0 6px; }
+.ip-recommendation-head p { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.ip-recommendation-head .model-field { flex: 0 1 220px; }
+#ip-proposal .ip-recommendation-table { table-layout: fixed; }
+#ip-proposal .ip-recommendation-table td, #ip-proposal .ip-recommendation-table th { padding: 7px 10px; }
+.ip-server-settings { margin: 14px 0; padding: 12px 14px; border-left: 3px solid #91a99a; font-size: 13px; line-height: 1.5; background: #f0f4ef; }
+.ip-server-settings p { margin: 5px 0; }
+.ip-server-settings ul { padding-left: 20px; margin: 6px 0 0; }
+.ip-recommendation-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+.ip-recommendation-actions span { color: #286549; font-size: 13px; }
+.ip-compatibility-error { color: #a2362c; font-size: 13px; }
+#ip-proposal .ip-source-details { margin-bottom: 0; font-size: 13px; overflow-wrap: anywhere; }
+#ip-edit-settings > summary { font-weight: 600; cursor: pointer; }
+@media (max-width:650px) {
+  .model-add-dialog .model-form-grid { grid-template-columns: minmax(0, 1fr); }
+  .ip-recommendation-head { align-items: stretch; flex-direction: column; }
+  .ip-recommendation-head .model-field { flex-basis: auto; }
+  .ip-recommendation { padding: 12px; }
+}
+
+.ip-help { display:inline-flex; position:relative; vertical-align:middle; font-weight:400; }
+.ip-help-trigger { display:inline-grid; place-items:center; width:20px; height:20px; padding:0; border:1px solid #73877b; border-radius:50%; background:#fff; color:#365746; font:600 12px/1 sans-serif; cursor:help; }
+.ip-help-trigger:focus-visible { outline:2px solid #286549; outline-offset:2px; }
+.ip-tooltip { display:none; position:absolute; z-index:10; top:100%; left:0; width:300px; max-width:60vw; padding:10px 12px; background:#243c2e; color:#fff; border-radius:7px; box-shadow:0 5px 16px #0003; font:400 13px/1.5 sans-serif; text-align:left; overflow-wrap:anywhere; }
+.ip-help:hover > .ip-tooltip, .ip-help:focus-within > .ip-tooltip { display:block; }

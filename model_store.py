@@ -71,6 +71,7 @@ def add(root,entry,validate,expected=None):
         errors=validate(doc)
         if errors:raise ValueError('Fix the existing JSON first: '+'; '.join(errors))
         if any(m['name']==entry['name'] for m in doc['models']):raise ValueError('That display name is already saved. Choose another name for this configuration.')
+        __import__('inference_profiles').validate_new_entries(doc,{'models':[entry]})
         doc['models'].append(entry)
         errors=validate(doc)
         if errors:raise ValueError('; '.join(errors))
@@ -83,4 +84,5 @@ def save_json(root,text,validate,expected=None):
     if errors:raise ValueError('; '.join(errors))
     with editing(root):
         check_revision(root,expected)
+        __import__('inference_profiles').validate_new_entries(read(root)[0],doc)
         return write(root,doc)

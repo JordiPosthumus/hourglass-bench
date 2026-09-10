@@ -5,13 +5,13 @@ import io
 import score_report,hardware_records,harness_runner
 class ComparisonViews(unittest.TestCase):
  def test_scopes_ranking_and_hardware_labels(self):
-  base=dict(model='Same model',machine_key='one',hardware={'label':'Mac & desktop'},bank_fingerprint='a',scoring='v',timing_policy='h',benchmark_version='v',weighted_points=0,raw_correct=0,state='partial',curve=[])
-  other={**base,'machine_key':'two','hardware':{'label':'Spark 2'},'weighted_points':8,'state':'in_progress'}
+  base=dict(model='Same model',machine_key='one',hardware={'label':'Mac & desktop'},bank_fingerprint='a',scoring='v',timing_policy='h',benchmark_version='v',score_version='linear-auc-100-v1',hourglass_score=0,weighted_points=0,raw_correct=0,state='partial',curve=[])
+  other={**base,'machine_key':'two','hardware':{'label':'Spark 2'},'weighted_points':8,'hourglass_score':42,'state':'in_progress'}
   reports=[base,other,{**other,'bank_fingerprint':'bad','model':'Exclude'}]
   self.assertEqual(len(json.loads(score_report.comparison(reports)['comparison.json'])['reports']),1)
   self.assertEqual(len(json.loads(score_report.comparison(reports,'all')['comparison.json'])['reports']),2)
   svg=score_report.ranking(reports,'all')['ranking.svg']
-  self.assertLess(svg.index('Spark 2'),svg.index('Mac &amp; desktop'));self.assertNotIn('Exclude',svg);self.assertIn('0.00',svg);self.assertIn('in_progress',svg)
+  self.assertLess(svg.index('Spark 2'),svg.index('Mac &amp; desktop'));self.assertNotIn('Exclude',svg);self.assertIn('0.0',svg);self.assertIn('in_progress',svg)
  def test_hardware_string_and_legacy_identity(self):
   with tempfile.TemporaryDirectory() as d:
    root=Path(d);cfg={'base_url':'http://server/v1','hardware':'Spark'}
