@@ -8,6 +8,8 @@ import threading
 import uuid
 import run_tracking
 import diagnostics
+import task_identity
+import option_layout
 import score_weights
 import scoring_policy
 import hardware_records
@@ -42,18 +44,34 @@ def evaluation_manifest(root, job, version, config, legacy=False):
         raw = (root / 'tasks' / tid / 'task.json').read_bytes()
         task = json.loads(raw)
         expected.append({'task': tid, 'task_sha': hashlib.sha256(raw).hexdigest()[:16],
+                         **({'task_bundle_sha':task_identity.identity(root/'tasks'/tid)} if not legacy else {}),
                          'vision': task.get('kind') == 'chart-vqa' or bool(task.get('image') or task.get('assets')),
                          'section':task.get('section'),'tier':task.get('tier'),'level':task.get('level'),
                          'weight':score_weights.weight(task),'weight_version':score_weights.VERSION,
                          'repeat': job['repeat'] if job['repeat'] is not None else task.get('repeat', 3)})
+    if job.get('reviewed_task_bundles') is not None and job['reviewed_task_bundles']!={t['task']:t['task_bundle_sha'] for t in expected}:
+        raise ValueError('Question bundles changed after review. Refresh and review again.')
+    if not legacy:
+        frozen=root/'evaluations'/(job['id']+'.tasks')
+        frozen.mkdir(parents=True,exist_ok=False)
+        try:
+            for item in expected:
+                shutil.copytree(root/'tasks'/item['task'],frozen/item['task'])
+                task_identity.verify(frozen/item['task'],item)
+        except Exception:
+            shutil.rmtree(frozen)
+            raise
     manifest = {'id': job['id'], 'model': job['model'], 'model_id': config['model'],
                 'benchmark_version': version, 'expected': expected,
-                **({'diagnostic_isolation':diagnostics.POLICY} if not legacy else {}),
+                **({'diagnostic_isolation':diagnostics.POLICY,'option_layout_policy':option_layout.POLICY,'presentation_seed':uuid.uuid4().hex,'task_snapshot':str(frozen.relative_to(root))} if not legacy else {}),
                 'stop_after_wrong':job.get('stop_after_wrong'), 'order':job['tasks'],
                 'created': job['created'], 'started': job.get('started'), 'state': job['state'],
                 'config_hash': digest(config), 'model_config_snapshot':json.loads(json.dumps(config)), 'legacy_time_match': legacy}
+    for key in ('question_timeout_s','question_timeout_policy','scoring_policy'):
+        if key in job:manifest[key]=job[key]
     manifest['hardware']=hardware_records.capture(root,config)
-    manifest['scope'] = digest({'version': version, 'expected': expected, 'order':job['tasks'], 'stop_after_wrong':job.get('stop_after_wrong')})
+    manifest['scope'] = digest({'version': version, 'expected': expected, 'order':job['tasks'], 'stop_after_wrong':job.get('stop_after_wrong'), **({k:job[k] for k in ('question_timeout_s','question_timeout_policy','scoring_policy') if k in job})})
+    if not legacy:manifest['scope']=digest({'original_scope':manifest['scope'],'option_layout_policy':option_layout.POLICY})
     if 'scoring_policy' in job:
         manifest['scoring_policy']=job['scoring_policy']
         manifest['scope']=digest({'original_scope':manifest['scope'],'scoring_policy':job['scoring_policy']})
@@ -67,7 +85,7 @@ def update_evaluation(root, job):
         path = root / 'evaluations' / (job['id'] + '.json')
         manifest = read(path, None)
         if manifest:
-            manifest.update({k: job[k] for k in ('started', 'ended', 'state', 'error', 'rc', 'completed_tasks', 'total_tasks', 'label', 'stopped_after', 'current_task', 'repeat', 'elapsed_s', 'active_started', 'resume_count', 'resume_versions','active_intervals','active_question','hour_timing_unknown','stop_reason') if k in job})
+            manifest.update({k: job[k] for k in ('started', 'ended', 'state', 'error', 'rc', 'completed_tasks', 'total_tasks', 'label', 'stopped_after', 'current_task', 'repeat', 'elapsed_s', 'active_started', 'resume_count', 'resume_versions','active_intervals','active_question','hour_timing_unknown','stop_reason','question_timeout_s','question_timeout_policy','scoring_policy','question_elapsed_s') if k in job})
             write(path, manifest)
 
 
@@ -93,13 +111,18 @@ def evaluations(root, rows):
             reasons.append('Neutral outcomes are excluded from answer-accuracy calibration.')
         if actual != expected:
             reasons.append(f"Incomplete or duplicate attempts: {len(attempts)}/{sum(expected.values())} recorded.")
-        if any(r.get('status') != 'completed' for r in attempts):
+        if any(r.get('status') == 'timeout' for r in attempts):
+            reasons.append('Timed-out evaluations are excluded from answer-accuracy calibration.')
+        if any(r.get('status') not in ('completed','timeout') for r in attempts):
             reasons.append('Execution errors must be resolved before calibration.')
         if len({(r.get('task'),r.get('run',1)) for r in raw if r.get('status')=='completed'}) != sum(r.get('status')=='completed' for r in raw):
             reasons.append('Duplicate completed repeats were recorded.')
         hashes = {t['task']: t['task_sha'] for t in m['expected']}
         if any(r.get('benchmark_version') != m['benchmark_version'] or r.get('task_sha') != hashes.get(r.get('task')) for r in attempts):
             reasons.append('Benchmark version or question content changed during this evaluation.')
+        bundles={t['task']:t.get('task_bundle_sha') for t in m['expected']}
+        if any(bundles.get(r.get('task')) and r.get('task_bundle_sha')!=bundles[r['task']] for r in attempts):
+            reasons.append('Question bundle identity does not match the evaluation.')
         ids = [r.get('run_id') for r in attempts]
         if len(set(ids)) != len(ids) or any(not x for x in ids):
             reasons.append('Attempt identifiers are missing or duplicated.')

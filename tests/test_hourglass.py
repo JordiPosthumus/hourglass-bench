@@ -1,7 +1,7 @@
 import contextlib,importlib.util,io,json,tempfile,unittest,types,shutil,os
 from pathlib import Path
 from unittest.mock import patch
-import hourglass,web
+import hourglass,web,option_layout,task_identity
 
 class LegacyHarnessAndScoringTests(unittest.TestCase):
     def setUp(self):
@@ -18,7 +18,17 @@ class LegacyHarnessAndScoringTests(unittest.TestCase):
     def args(self,tid='unit-mcq'):
         return types.SimpleNamespace(task=tid,model='test model',repeat=1,config=str(self.cfg),no_sandbox=True)
     def run_mock(self,responses):
-        with patch.object(hourglass,'chat',side_effect=responses),patch.object(hourglass,'get_provenance',return_value={'node':'test','pi_version':'fixture'}),contextlib.redirect_stdout(io.StringIO()):hourglass.cmd_run(self.args())
+        t=json.loads((hourglass.TASKS/'unit-mcq/task.json').read_text())
+        _,layout=option_layout.prepare(t,1,task_identity.identity(hourglass.TASKS/'unit-mcq'),'fixture-seed')
+        if layout:
+            inverse={v:k for k,v in layout['display_to_original'].items()}
+            for response in responses:
+                if not isinstance(response,dict):continue
+                for call in response['choices'][0]['message'].get('tool_calls',[]):
+                    fn=call['function'];args=json.loads(fn['arguments'])
+                    if fn['name']=='answer_question' and args.get('option') in inverse:
+                        args['option']=inverse[args['option']];fn['arguments']=json.dumps(args)
+        with patch.object(hourglass.uuid,'uuid4',return_value=types.SimpleNamespace(hex='fixture-seed')),patch.object(hourglass,'chat',side_effect=responses),patch.object(hourglass,'get_provenance',return_value={'node':'test','pi_version':'fixture'}),contextlib.redirect_stdout(io.StringIO()):hourglass.cmd_run(self.args())
     def test_full_mcq_reads_file_and_grades(self):
         self.task();self.run_mock([self.answer('read_file',{'path':'evidence.txt'}),self.answer()]);rows=hourglass._rows();self.assertTrue(rows[0]['solved']);self.assertEqual(rows[0]['tool_calls'],2);self.assertEqual(rows[0]['opt_n'],2)
         tr=json.loads((self.root/rows[0]['artifact_dir']/'trace.json').read_text());self.assertTrue(any(t.get('result')=='42' for t in tr))
@@ -127,7 +137,7 @@ class WebTests(unittest.TestCase):
         self.patches=[patch.object(web,'ROOT',self.root),patch.object(web,'TASKS',self.root/'tasks'),patch.object(web,'RESULTS',self.root/'results'),patch.object(web,'LOGS',self.root/'logs')]
         for p in self.patches:p.start()
         self.addCleanup(lambda:[p.stop() for p in reversed(self.patches)]);self.addCleanup(self.tmp.cleanup)
-        self.model='name with spaces; echo should-not-run';(self.root/'models.json').write_text(json.dumps({'models':[{'name':self.model,'model':'x','base_url':'http://localhost/v1'}]}))
+        self.model='name with spaces; echo should-not-run';(self.root/'models.json').write_text(json.dumps({'models':[{'name':self.model,'model':'x','base_url':'http://localhost/v1','hardware':'Fixture hardware','server_name':'Fixture server','quantization':'FP16'}]}))
         p=web.TASKS/'G001';p.mkdir(parents=True);(p/'task.json').write_text(json.dumps({'id':'G001','kind':'mcq','section':'games','prompt':'q','options':[{'id':'001','text':'a'},{'id':'002','text':'b'}],'answer':'001','files':{}}))
         with web.condition:web.queue.clear();web.running.clear();web.done.clear()
     def test_state_does_not_expose_answers(self):
@@ -145,7 +155,7 @@ class WebTests(unittest.TestCase):
         response=io.BytesIO(json.dumps({'data':[{'id':'x'}]}).encode())
         with patch.object(web.urllib.request,'urlopen',return_value=response) as call:
             r=web.check_model(self.model)
-        self.assertTrue(r['listed']);self.assertTrue(call.call_args.args[0].endswith('/models'))
+        self.assertTrue(r['listed']);self.assertTrue(call.call_args.args[0].full_url.endswith('/models'))
     def test_reject_duplicate_model_aliases(self):
         m={'name':'x','base_url':'http://localhost/v1','model':'x'};self.assertTrue(hourglass.validate_models({'models':[m,m]}))
     def test_difficulty_order_and_section_interleaving(self):
@@ -173,7 +183,7 @@ class WebTests(unittest.TestCase):
                 def __init__(self,cmd,**kwargs):
                     tid=cmd[cmd.index('run')+1];skip=kwargs['env']['HOURGLASS_SKIP_REASON'];calls.append(skip)
                     rows.append({'evaluation_id':job['id'],'task':tid,'status':'completed','solved':len(calls)-1==correct_at})
-                def wait(self):
+                def wait(self, timeout=None):
                     if len(calls)==42:web.worker_stop=True
                     return 0
             with patch.object(web.subprocess,'Popen',Proc),patch.object(web,'result_rows',side_effect=lambda:rows):web.worker()
@@ -184,7 +194,7 @@ class WebTests(unittest.TestCase):
         calls=[]
         class Proc:
             def __init__(self,cmd,**kwargs):calls.append(cmd)
-            def wait(self):
+            def wait(self, timeout=None):
                 with web.condition:web.worker_stop=True
                 return 0
         web.enqueue({'model':self.model,'tasks':['G001'],'repeat':1})

@@ -10,7 +10,7 @@ class ResumeTests(unittest.TestCase):
         self.patches=[patch.object(web,k,self.root/v) for k,v in [('TASKS','tasks'),('RESULTS','results'),('LOGS','logs')]]+[patch.object(web,'ROOT',self.root)]
         for p in self.patches:p.start()
         self.addCleanup(lambda:[p.stop() for p in reversed(self.patches)])
-        self.cfg={'name':'model','model':'fixture','base_url':'http://example.invalid/v1','max_tokens':262144}
+        self.cfg={'name':'model','model':'fixture','base_url':'http://example.invalid/v1','max_tokens':262144,'hardware':'Fixture hardware','server_name':'Fixture server','quantization':'FP16'}
         (self.root/'models.json').write_text(json.dumps({'models':[self.cfg]}));web.RESULTS.mkdir();web.LOGS.mkdir()
         for i in range(21):
             p=web.TASKS/f'T{i:02d}'/'task.json';p.parent.mkdir(parents=True)
@@ -29,7 +29,7 @@ class ResumeTests(unittest.TestCase):
         expected=next(t for t in self.m['expected'] if t['task']==tid)
         r={'evaluation_id':self.job['id'],'task':tid,'run':run,'run_id':str(len(self.rows)),
            'status':status,'solved':solved,'duration_s':5,'model':'model','model_config_hash':c.digest(self.cfg),
-           'benchmark_version':hourglass.BENCHMARK_VERSION,'task_sha':expected['task_sha'],'node':'test'}
+           'benchmark_version':hourglass.BENCHMARK_VERSION,'task_sha':expected['task_sha'],'task_bundle_sha':expected['task_bundle_sha'],'node':'test'}
         if reason:r['score_reason']=reason
         self.rows.append(r);(web.RESULTS/'results.jsonl').write_text(''.join(json.dumps(x)+'\n' for x in self.rows));return r
 
@@ -40,7 +40,7 @@ class ResumeTests(unittest.TestCase):
                 tid=cmd[cmd.index('run')+1];indices=[int(i) for i in cmd[cmd.index('--repeat-indices')+1].split(',')]
                 skip=kwargs['env']['HOURGLASS_SKIP_REASON'];calls.append((tid,indices,skip))
                 for i in indices:outer.row(tid,i,solved=solved and not skip,reason=skip or None)
-            def wait(self):web.worker_stop=True;return 0
+            def wait(self, timeout=None):web.worker_stop=True;return 0
         with patch.object(web.subprocess,'Popen',Proc):web.worker()
         return calls
 
@@ -73,7 +73,7 @@ class ResumeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'settings changed'):web.resume_job({'job':job['id']})
 
     def test_changed_question_is_rejected(self):
-        job=self.interrupted();(web.TASKS/'T00'/'task.json').write_text('{}')
+        job=self.interrupted();(self.root/self.m['task_snapshot']/'T00'/'task.json').write_text('{}')
         with self.assertRaisesRegex(ValueError,'content changed'):web.resume_job({'job':job['id']})
 
     def test_cross_version_resume_is_labelled_and_not_calibrated(self):

@@ -20,7 +20,7 @@ import results_history
 PAGE='''<!doctype html><meta charset="utf-8"><title>Hourglass score preview</title><style>body{background:#101722;color:#eaf0fa;font:16px system-ui;max-width:1400px;margin:32px auto;padding:0 28px}input,button,select{font:inherit;padding:10px;border-radius:7px;border:1px solid #627080}input,select{background:#172231;color:#eaf0fa;min-width:0}button{cursor:pointer}button:disabled{opacity:.5}img{display:block;width:100%;height:auto;border:1px solid #2c394a;border-radius:14px;margin:20px 0}pre{white-space:pre-wrap}a{color:#74e5c4}fieldset{border:1px solid #39495b;border-radius:12px;padding:20px;margin:24px 0}.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}label{display:flex;flex-direction:column;gap:6px;font-size:14px}.actions{display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-top:20px}.help{font-size:13px;color:#b7c5d5}h2{font-size:20px}[hidden]{display:none!important}.tabs{display:flex;gap:8px;border-bottom:1px solid #39495b;padding-bottom:12px;margin:24px 0}.tabs button{background:transparent;color:#b7c5d5}.tabs button[aria-current="page"]{background:#234d42;color:#fff;border-color:#74e5c4}#summary{white-space:pre-line}.embedded{margin:0;padding:20px}.embedded>h1,.embedded>.tabs{display:none}</style>
 <h1>Hourglass scores</h1>
 <nav class="tabs" aria-label="Score views"><button id="tab-comparison" type="button" aria-controls="panel-comparison">Comparison</button><button id="tab-publish" type="button" aria-controls="panel-publish">Record & publish score</button></nav>
-<section id="panel-comparison" aria-labelledby="tab-comparison"><label>Compare<select id="scope"><option value="same">Same hardware</option><option value="all">All hardware</option></select></label><p class="help">Same major release and exact question bank, order, weights and repeats. Recorded scoring and question deadlines may differ; original scores are preserved. Selected run plus the latest matching run for each model and machine.</p><h2>Score ranking</h2><img id="ranking" alt="Models ranked by weighted score with hardware labels"><h2>Weighted score over time</h2><p class="help">Each step marks the score after a final submission. AUC is calculated from this exact step graph.</p><img id="graph" alt="Weighted score over active time">
+<section id="panel-comparison" aria-labelledby="tab-comparison"><label>Compare<select id="scope"><option value="history">All runs · all versions</option><option value="same">Same hardware</option><option value="all">All hardware</option></select></label><p class="help">All versions includes historical banks; use the hardware filters to restrict to this bank. Rules are labeled and original scores are preserved. Completed equivalent repeats are averaged; live and partial runs stay individual.</p><h2>Score ranking</h2><img id="ranking" alt="Models ranked by weighted score with hardware labels"><h2>Weighted score over time</h2><p class="help">Each step marks the score after a final submission. AUC is calculated from this exact step graph.</p><img id="graph" alt="Weighted score over active time">
 <h2>Accuracy × token efficiency × speed</h2><p class="help">Up is more accurate. Right uses fewer output tokens. Larger bubbles mean more scored answers per active minute.</p><img id="quadrants" alt="Accuracy token efficiency and speed quadrant chart">
 </section>
 <section id="panel-publish" aria-labelledby="tab-publish" hidden><h2>Record & publish score</h2><p id="summary"></p><fieldset id="hardware"><legend>Hardware for this run</legend><label>Hardware<input id="label" maxlength="160" placeholder="Spark 2 · NVIDIA GB10 · 128 GB"></label><div class="actions"><button id="saveHardware" disabled>Save hardware</button><span id="hardwareStatus" class="help"></span></div></fieldset>
@@ -34,7 +34,7 @@ for(const name of ['comparison','publish'])$('tab-'+name).onclick=()=>{location.
 window.addEventListener('hashchange',showView);showView();
 function fill(h){$('label').value=h.label||''}
 function changed(){dirty=true;hardwareDirty=true;$('publish').disabled=true;$('hardwareStatus').textContent='Save the hardware details to update this report.'}
-$('scope').value=new URLSearchParams(location.search).get('scope')==='same'?'same':'all';
+$('scope').value=['same','all','history'].includes(new URLSearchParams(location.search).get('scope'))?new URLSearchParams(location.search).get('scope'):'history';
 $('scope').onchange=()=>{if(dirty){$('status').textContent='Save hardware before changing the comparison.';return}init()};
 async function init(){try{$('publish').disabled=true;const r=await fetch('/api/preview?job='+encodeURIComponent(job)+'&scope='+$('scope').value);const d=await r.json();if(!r.ok)throw Error(d.error);token=d.token;machines=d.machines;fill(d.hardware.source==='unknown'?{}:d.hardware);for(const k of experimentFields)$('exp_'+k).value=d.experiment[k]||'';$('ranking').src='/file/'+token+'/ranking.svg';$('graph').src='/file/'+token+'/comparison.svg';$('quadrants').src='/file/'+token+'/quadrants.svg';$('files').innerHTML=names.map(n=>'<a target="_blank" href="/file/'+token+'/'+n+'">'+n+'</a>').join(' · ');if(!$('repo').value)$('repo').value=d.repo;$('summary').textContent=d.summary;$('hardwareStatus').textContent='Saved hardware source: '+d.hardware.source;dirty=false;hardwareDirty=false;experimentDirty=false;$('saveHardware').disabled=false;$('publish').disabled=d.hardware.source==='unknown'}catch(e){$('status').textContent=e.message}}
 const experimentFields=['model_family','model_revision','configuration','quantization','inference_engine','harness_revision','parameters'];
@@ -100,7 +100,7 @@ def handler(root,port,source_port,repo='',prefix=''):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,*args):pass
         def send(self,data,kind='application/json',status=200):
-            data=data.encode();self.send_response(status);self.send_header('Content-Type',kind);self.send_header('Content-Length',str(len(data)));self.send_header('X-Content-Type-Options','nosniff');self.end_headers();self.wfile.write(data)
+            data=data.encode();self.send_response(status);self.send_header('Content-Type',kind);self.send_header('Content-Length',str(len(data)));self.send_header('X-Content-Type-Options','nosniff');self.send_header('Access-Control-Allow-Origin',f'http://127.0.0.1:{source_port}');self.end_headers();self.wfile.write(data)
         def do_GET(self):
             try:
                 if self.headers.get('Host')!=f'127.0.0.1:{port}':raise ValueError('Invalid host.')
@@ -110,7 +110,7 @@ def handler(root,port,source_port,repo='',prefix=''):
                 if u.path in ('/api/preview','/chart.svg','/api/question-context'):
                     query=urllib.parse.parse_qs(u.query)
                     scope=query.get('scope',['all'])[0]
-                    if scope not in ('same','all'):raise ValueError('Invalid comparison scope.')
+                    if scope not in ('same','all','history'):raise ValueError('Invalid comparison scope.')
                     view=query.get('view',['comparison'])[0]
                     if view not in ('comparison','ranking','quadrants'):raise ValueError('Invalid chart view.')
                     jid=query.get('job',[''])[0]
@@ -128,14 +128,17 @@ def handler(root,port,source_port,repo='',prefix=''):
                         except (ValueError,KeyError,FileNotFoundError):continue
                         reference=reports[0]
                         identity=(other['model'],candidate['machine_key'])
-                        if identity in seen or len(score_report.compatible_reports([reference,candidate],scope))!=2:continue
+                        if len(score_report.compatible_reports([reference,candidate],scope))!=2:continue
                         reports.append(candidate);seen.add(identity)
+                    import repeat_reports
+                    individual_reports=reports
+                    if query.get('repeats',['mean'])[0]=='mean' and view!='quadrants':reports=repeat_reports.average(reports)
                     if u.path=='/api/question-context':
-                        self.send(json.dumps(question_context.build(root,reports,jobs,state['results'],time.time())));return
+                        self.send(json.dumps(question_context.build(root,reports,jobs,state['results'],time.time(),individual_reports)));return
                     files.update(score_report.comparison(reports,scope))
-                    files.update(score_report.quadrants(reports,scope))
+                    files.update(score_report.quadrants(individual_reports,scope))
                     files.update(score_report.ranking(reports,scope))
-                    files['README.md']+='\nComparison scope: '+('all hardware' if scope=='all' else 'same hardware')+'. Selected run plus latest matching run per model and machine; model settings may differ.\n'
+                    files['README.md']+='\nComparison scope: '+{'history':'all runs and benchmark versions','all':'this bank, all hardware','same':'this bank and hardware'}[scope]+'. '+('Equivalent completed repeats are averaged.' if query.get('repeats',['mean'])[0]=='mean' else 'Every run is shown individually.')+' Different benchmark versions and scoring rules are never averaged.\n'
                     files['README.md']=files['README.md'].replace('![Score graph](score.svg)','![Score ranking](ranking.svg)\n\n![Models over time](comparison.svg)\n\n[Individual score graph](score.svg) · [Comparison data](comparison.json)\n\n![Accuracy, token efficiency and speed](quadrants.svg)')
                     if u.path=='/chart.svg':
                         chart=report_charts.progress_chart(reports,scope,legend=False) if view=='comparison' and query.get('legend')==['none'] else files[view+'.svg']

@@ -45,6 +45,7 @@ def effective_attempts(rows):
 
 
 def missing_repeats(manifest, rows, tid):
+    if any(r.get('task')==tid and r.get('status')=='timeout' for r in rows):return []
     count=next(t['repeat'] for t in manifest['expected'] if t['task']==tid)
     complete={r.get('run',1) for r in effective_attempts(rows) if r.get('task')==tid and r.get('status')=='completed'}
     return [i for i in range(1,count+1) if i not in complete]
@@ -61,6 +62,9 @@ def progress(manifest, raw, job, now):
     for tid in order:
         rs=by_task[tid];n=expected[tid]
         points+=sum(bool(r.get('solved')) for r in rs)/n
+        if any(r.get('task')==tid and r.get('status')=='timeout' for r in effective):
+            finished+=1
+            continue
         if len(rs)==n:
             finished+=1
             if not any(is_early_stop(r) for r in rs):
@@ -89,6 +93,7 @@ def progress(manifest, raw, job, now):
             'answered_questions':answered_questions,'correct_attempts':sum(bool(r.get('solved')) for r in scored),
             'scored_attempts':len(scored),'accuracy':sum(bool(r.get('solved')) for r in scored)/len(scored) if scored else None,
             'not_attempted':sum(is_early_stop(r) for r in effective),
+            'timeouts':len({r['task'] for r in effective if r.get('status')=='timeout'}),
             'errors':sum(r.get('status')=='error' for r in raw),'elapsed_s':elapsed,
             'questions_per_minute':answered_questions*60/elapsed if elapsed>0 else None,
             'stop_after_wrong':job.get('stop_after_wrong') or manifest.get('stop_after_wrong') or STOP_AFTER_WRONG,

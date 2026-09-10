@@ -22,13 +22,16 @@ import statistics
 import calibration
 import run_tracking
 import hour_score
+import question_deadline
 import diagnostics
+import task_identity
+import option_layout
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 TASKS, RESULTS, SANDBOX = ROOT / "tasks", ROOT / "results", ROOT / "sandboxes"
 REAL_HOME = str(Path.home())
-BENCHMARK_VERSION = "2.5.1"
+BENCHMARK_VERSION = "2.6.1"
 
 def requires_vision(task):
     return task.get("kind") == "chart-vqa" or bool(task.get("image") or task.get("assets"))
@@ -56,7 +59,10 @@ def benchmark_worktrees():
 
 def sandbox_profile(workdir: str, sandboxed=True) -> str:
     if not sandboxed:
-        return diagnostics.protected_profile('(version 1)\n(allow default)', [ROOT,*benchmark_worktrees()], workdir,
+        controller_port=int(os.environ.get('HOURGLASS_PORT','4534'))
+        if not 1<=controller_port<=65535:raise ValueError('Invalid benchmark controller port.')
+        base=f'(version 1)\n(allow default)\n(deny network-outbound (remote ip "localhost:{controller_port}"))'
+        return diagnostics.protected_profile(base, [ROOT,*benchmark_worktrees()], workdir,
             [os.environ.get('HOURGLASS_ATTEMPT_CHECKPOINT'),os.environ.get('HOURGLASS_TELEMETRY_PHASE')])
     deny = ["Library", ".ssh", ".pi", ".hermes", ".openclaw", ".config", ".aws",
             ".gnupg", ".zsh_history", ".netrc", ".npmrc", "Documents"]
@@ -269,6 +275,9 @@ def chat(url, model, messages, cfg, use_tools=True, tools=None):
     if cfg.get("reasoning") is not None: body["reasoning"] = cfg["reasoning"]
     if cfg.get("extra"): body.update(cfg["extra"])
     body.pop("temperature", None)
+    if cfg.get("output_budget") == "server":
+        body.pop("max_tokens", None)
+        body.pop("max_completion_tokens", None)
     req = urllib.request.Request(url.rstrip("/") + "/chat/completions",
         data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
     try:
@@ -335,7 +344,7 @@ def parse_json_answer(content):
 def run_chart(task, model_cfg, workdir):
     url, name = model_cfg["base_url"], model_cfg["model"]
     b64 = base64.b64encode((workdir / task["image"]).read_bytes()).decode()
-    disp, disp_map = shuffle_choices(task)
+    disp, disp_map = ("", None) if task.get("mode")=="numeric" else shuffle_choices(task)
     mode = task.get("mode", "letter")
     answer_hint = '{"answer":"<letter>"}' if mode == "letter" else '{"value": <number>}'
     q = task["prompt"] + "\n\n" + disp + "\n\nReply with JSON only: " + answer_hint + "\nNo other text."
@@ -598,6 +607,8 @@ def validate_models(doc):
             u = urllib.parse.urlparse(m["base_url"])
             if u.scheme not in ("http", "https") or not u.netloc:
                 errors.append(f"Model {i+1}: base_url must be an HTTP(S) URL")
+        if m.get("output_budget", "explicit") not in ("explicit", "server"):
+            errors.append(f"Model {i+1}: output_budget must be explicit or server")
         if "supports_vision" in m and type(m["supports_vision"]) is not bool:
             errors.append(f"Model {i+1}: supports_vision must be true or false")
         if "hardware" in m and (not isinstance(m["hardware"], str) or len(m["hardware"])>160 or any(ord(c)<32 for c in m["hardware"])):
@@ -607,6 +618,11 @@ def validate_models(doc):
     return errors
 
 def cmd_run(args):
+    global TASKS
+    evaluation_id=os.environ.get('HOURGLASS_EVALUATION_ID')
+    if evaluation_id:
+        manifest=json.loads((ROOT/'evaluations'/(evaluation_id+'.json')).read_text())
+        if manifest.get('task_snapshot'):TASKS=ROOT/manifest['task_snapshot']
     task = json.loads((TASKS / args.task / "task.json").read_text())
     cfg_path = args.config or str(ROOT / "models.json")
     models = load_models(cfg_path)
@@ -620,6 +636,14 @@ def cmd_run(args):
         raise ValueError("Invalid task: " + "; ".join(errors))
     prov = get_provenance(cfg_path)
     task_sha = (sha(TASKS / args.task / "task.json") or "")[:16]
+    task_bundle_sha=task_identity.identity(TASKS/args.task)
+    evaluation_id=os.environ.get('HOURGLASS_EVALUATION_ID')
+    if evaluation_id:
+        manifest=json.loads((ROOT/'evaluations'/(evaluation_id+'.json')).read_text())
+        expected=next(t for t in manifest['expected'] if t['task']==args.task)
+        task_identity.verify(TASKS/args.task,expected)
+    original_task=task
+    presentation_seed=manifest.get('presentation_seed','') if evaluation_id else uuid.uuid4().hex
     sandboxed = not args.no_sandbox
     chart = task.get("kind") == "chart-vqa"
     early_stop = os.environ.get("HOURGLASS_SKIP_REASON") in ("five_wrong_in_row", "wrong_streak_limit")
@@ -631,14 +655,24 @@ def cmd_run(args):
     if len(set(runs)) != len(runs) or any(i < 1 or i > repeat for i in runs):
         raise ValueError("Repeat indices must be distinct and within the saved repeat count")
     for run in runs:
+        task_identity.verify(TASKS/args.task,{'task_sha':task_sha,'task_bundle_sha':task_bundle_sha})
+        task,option_presentation=option_layout.prepare(original_task,run,task_bundle_sha,presentation_seed) if not evaluation_id or manifest.get('option_layout_policy')==option_layout.POLICY else (original_task,None)
         run_id = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ") + "-" + uuid.uuid4().hex[:8]
         print(f"START {args.task} · {args.model} · repeat {run}/{repeat}", flush=True)
         started = time.time()
+        checkpoint_path = os.environ.get('HOURGLASS_ATTEMPT_CHECKPOINT')
+        attempt_state = {'task': args.task, 'run': run, 'run_id': run_id, 'started': started,
+                         'workdir': None, 'provenance': {k: prov.get(k) for k in ('node', 'pi_version')}}
+        question_deadline.checkpoint(checkpoint_path, attempt_state)
         workdir = None if unsupported_vision or early_stop else build(task)
+        attempt_state['workdir'] = str(workdir) if workdir is not None else None
+        if workdir is not None:attempt_state.update(diagnostics.descriptor(ROOT,workdir))
+        question_deadline.checkpoint(checkpoint_path, attempt_state)
         if chart and not unsupported_vision and not early_stop:
             dst = workspace_path(workdir, task["image"])
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(TASKS / args.task / task["image"], dst)
+        task_identity.verify(TASKS/args.task,{'task_sha':task_sha,'task_bundle_sha':task_bundle_sha})
         try:
             if unsupported_vision or early_stop:
                 trace, parsed, disp_map = [], {}, None
@@ -682,16 +716,28 @@ def cmd_run(args):
         (rdir / "trace.json").write_text(json.dumps(trace, indent=1))
         if workdir is not None:diagnostics.publish(ROOT,workdir,rdir)
         (rdir / "patch.diff").write_text(patch)
+        question_deadline_at = float(os.environ.get('HOURGLASS_QUESTION_DEADLINE_AT') or 0)
+        if question_deadline_at and time.monotonic() >= float(os.environ['HOURGLASS_QUESTION_DEADLINE_MONOTONIC']) and not early_stop:
+            metrics.pop('error', None)
+            metrics.update(termination='question_timeout', score_reason='question_timeout', timeout_at=question_deadline_at)
+            solved, vout = False, f"Question exceeded {float(os.environ['HOURGLASS_QUESTION_TIMEOUT_S']):g} seconds; zero points; continuing to the next question."
+            had_error = False
+        if question_deadline_at:
+            metrics.update(question_timeout_s=float(os.environ['HOURGLASS_QUESTION_TIMEOUT_S']),
+                           question_timeout_policy=question_deadline.POLICY,
+                           question_started_at=float(os.environ['HOURGLASS_QUESTION_STARTED_AT']),
+                           question_deadline_at=question_deadline_at)
         rec = {"task": args.task, "model": args.model, "run": run, "run_id": run_id,
                "evaluation_id": os.environ.get("HOURGLASS_EVALUATION_ID"), "stop_after_wrong": stop_limit, "model_config_hash": calibration.digest(mcfg),
                "benchmark_version": BENCHMARK_VERSION, "diagnostic_isolation": diagnostics.POLICY, "scoring_policy": os.environ.get('HOURGLASS_SCORING_POLICY',scoring_policy.LEGACY), "supports_vision": mcfg.get("supports_vision"),
                "artifact_dir": str(rdir.relative_to(ROOT)), "tier": task.get("tier", 1),
-               "status": "error" if metrics.get("error") else "completed",
+               "status": "timeout" if metrics.get("termination") == "question_timeout" else "error" if metrics.get("error") else "completed",
                "section": task.get("section"), "family": task.get("family"), "mode": task.get("mode"),
                "opt_n": len(task.get("options") or task.get("choices") or []) or None,
                "solved": solved, "tampered": tampered, "sandboxed": sandboxed,
                "kind": task.get("kind", "fix"), "node": prov.get("node"),
                "pi_version": prov.get("pi_version"), "task_sha": task_sha,
+               "task_bundle_sha":task_bundle_sha,"option_presentation":option_presentation,
                "combo_hash": hashlib.sha256(f"{prov.get('node')}|{args.model}|{args.task}|{run_id}".encode()).hexdigest()[:12],
                "parsed_answer": parsed, "verified_output": vout,
                "patch_lines": patch.count(chr(10)), **metrics,
@@ -707,6 +753,7 @@ def cmd_run(args):
         if metrics.get("error"):
             print("ERROR: " + metrics["error"], flush=True)
         if workdir is not None: shutil.rmtree(workdir, ignore_errors=True)
+        if rec['status'] == 'timeout': break
     cmd_leaderboard(None,emit=not bool(os.environ.get('HOURGLASS_EVALUATION_ID')))
     cmd_frontier(None,emit=not bool(os.environ.get('HOURGLASS_EVALUATION_ID')))
     if had_error:
@@ -726,7 +773,7 @@ def cmd_leaderboard(_, rows=None, root=None, emit=True):
     rows = _rows() if rows is None else rows
     agg = {}
     for r in rows:
-        if r.get("status") == "error": continue
+        if r.get("status") != "completed": continue
         a = agg.setdefault((r.get("benchmark_version", "unversioned"), r["task"], r["model"]),
                            {"n": 0, "solved": 0, "times": [], "tok": [], "tamp": 0, "skipped": 0, "temperatures": set()})
         a["n"] += 1; a["solved"] += bool(r["solved"])
@@ -748,7 +795,7 @@ def cmd_leaderboard(_, rows=None, root=None, emit=True):
     if emit: print(doc)
 
 def cmd_frontier(_, rows=None, root=None, emit=True):
-    rows = [r for r in (_rows() if rows is None else rows) if r.get("status") != "error"]
+    rows = [r for r in (_rows() if rows is None else rows) if r.get("status") == "completed"]
     if not rows:
         ((root or ROOT) / "frontier.md").write_text("# Hourglass Bench frontier\n\nNo completed, scored runs yet.\n")
         if emit: print("No completed, scored runs yet.")
@@ -842,6 +889,26 @@ def cmd_intake_bundle(args):
     print(f"ingested {rep['ingested']}/{len(questions)}; errors {len(rep['errors'])}")
     for e in rep["errors"][:12]: print(" ", e)
 
+def cmd_escapetest(args):
+    task = json.loads((TASKS / args.task / "task.json").read_text())
+    wd = build(task)
+    targets = [str(ROOT / "incoming/codex-charts/benchmark-200-v1/private/answer-key.json"),
+               str(TASKS / "C001" / "task.json"), str(ROOT / "intake-report-bundle.json")]
+    probes = []
+    for t in targets:
+        out, _ = run_bash(f"cat {shlex.quote(t)} 2>&1 | head -c 200", wd, sandboxed=True)
+        blocked = (out.strip() == "" or "deny" in out.lower()
+                   or "operation not permitted" in out.lower() or "permission" in out.lower())
+        probes.append({"target": t, "blocked": bool(blocked), "sample": out[:140]})
+    out, _ = run_bash("curl -s http://127.0.0.1:1234/v1/models 2>&1 | head -c 140", wd, sandboxed=True)
+    probes.append({"target": "localhost inference API", "blocked":
+                   (out.strip() == "" or "denied" in out.lower() or "err" in out.lower() or "fatal" in out.lower()),
+                   "sample": out[:140]})
+    shutil.rmtree(wd, ignore_errors=True)
+    print(json.dumps(probes, indent=1))
+    ok = all(p["blocked"] for p in probes)
+    print("ISOLATION:", "PASS — private keys/generators/results unreadable, network denied" if ok else "FAIL — see sample fields")
+
 def cmd_generate(args):
     tdir, vdir = TASKS / args.id, TASKS / args.id / "verify"
     tdir.mkdir(parents=True, exist_ok=True); vdir.mkdir(parents=True, exist_ok=True)
@@ -926,6 +993,7 @@ def main():
     r.set_defaults(fn=cmd_run)
     i = sub.add_parser("intake"); i.add_argument("dir"); i.set_defaults(fn=cmd_intake)
     b = sub.add_parser("intake-bundle"); b.add_argument("dir"); b.set_defaults(fn=cmd_intake_bundle)
+    e = sub.add_parser("escapetest"); e.add_argument("task"); e.set_defaults(fn=cmd_escapetest)
     sub.add_parser("probe", help="capture machine/servers/pi provenature").set_defaults(fn=cmd_probe)
     sub.add_parser("leaderboard").set_defaults(fn=cmd_leaderboard)
     sub.add_parser("frontier").set_defaults(fn=cmd_frontier)

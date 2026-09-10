@@ -8,6 +8,7 @@ VERSION = 'weighted-hour-v1'
 
 def weight(task):
     section=task.get('section')
+    if section=='challenge':return 2.0
     tier=task.get('tier')
     if section in ('math','math_logic'):
         return {'advanced_high_school':1.0,'advanced_undergraduate':1.5,'graduate':2.0}.get(task.get('level'),1.0)

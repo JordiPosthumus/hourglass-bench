@@ -8,7 +8,7 @@ import hardware_records
 class HardwareRecordTests(unittest.TestCase):
     def test_local_identity_stable_without_hostname_or_serial(self):
         with tempfile.TemporaryDirectory() as d,patch.object(hardware_records.platform,'system',return_value='Darwin'),patch.object(hardware_records.platform,'processor',return_value='Chip'),patch.object(hardware_records.subprocess,'check_output',side_effect=['Chip','1024','4','{}']*2):
-            root=Path(d);a=hardware_records.capture(root,{'base_url':'http://127.0.0.1:1234/v1'});b=hardware_records.capture(root,{'base_url':'http://localhost:5111/v1'})
+            root=Path(d);a=hardware_records.capture(root,{'base_url':'http://127.0.0.1:1234/v1','inference_location':'local'});b=hardware_records.capture(root,{'base_url':'http://localhost:5111/v1','inference_location':'local'})
             self.assertEqual(a['machine_key'],b['machine_key']);self.assertEqual(a['cpu_cores'],4)
             self.assertNotIn('hostname',a);self.assertNotIn('serial',a)
 

@@ -2,6 +2,8 @@
 import datetime as dt
 import hashlib
 import json
+import run_naming
+import hardware_groups
 import platform
 import subprocess
 import uuid
@@ -12,12 +14,12 @@ def capture(root,config):
     profiles_path=root/'hardware-profiles.json'
     profiles=json.loads(profiles_path.read_text()) if profiles_path.exists() else {}
     endpoint=config.get('base_url','')
-    profile=profiles.get(endpoint)
+    profile=None if config.get('inference_location')=='local' else profiles.get(endpoint)
     label=config.get('hardware')
     if isinstance(label,str) and label.strip():
         label=label.strip()
         # Reuse an established identity when its recorded label is retained.
-        if profile and profile.get('label')==label:
+        if profile and run_naming.hardware(profile.get('label'))==run_naming.hardware(label):
             identity=str(profile['machine_id'])
             result={k:profile[k] for k in ('chip','memory_bytes','cpu_cores','gpu') if k in profile}
         else:
@@ -30,7 +32,7 @@ def capture(root,config):
         if not identity:raise ValueError('Hardware profile requires a stable machine_id.')
         result={k:profile[k] for k in ('label','chip','memory_bytes','cpu_cores','gpu') if k in profile}
         result.update(machine_key=hashlib.sha256(str(identity).encode()).hexdigest(),source='owner supplied')
-    elif urlparse(endpoint).hostname in ('localhost','127.0.0.1','::1'):
+    elif config.get('inference_location')=='local' and urlparse(endpoint).hostname in ('localhost','127.0.0.1','::1'):
         identity_path=root/'.machine-id'
         if not identity_path.exists():
             try:
@@ -60,9 +62,11 @@ def recorded(root,manifest):
     current=attachment if attachment and attachment.get('source')=='owner recorded' else manifest.get('hardware') or attachment or {'machine_key':'unknown-'+hashlib.sha256(manifest['id'].encode()).hexdigest(),'label':'Hardware not recorded','source':'unknown'}
     details=run_editor.snapshot(root,manifest['id'])
     label=(details or {}).get('values',{}).get('hardware')
-    if label and label!=current.get('label') and (not attachment or attachment.get('run_editor_hardware')!=label):
+    if label and run_naming.hardware(label)!=run_naming.hardware(current.get('label')) and (not attachment or attachment.get('run_editor_hardware')!=label):
         current={'label':label,'machine_key':hashlib.sha256(('hardware-label:'+label.casefold()).encode()).hexdigest(),'source':'owner recorded','captured_at':dt.datetime.fromtimestamp(details['recorded_at'],dt.timezone.utc).isoformat()}
-    return current
+    label=run_naming.hardware(current.get('label'))
+    current={**current,'label':label,'original_label':current.get('original_label',current.get('label'))} if label!=current.get('label') else current
+    return hardware_groups.apply(root,current)
 
 
 def revision(record):

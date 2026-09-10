@@ -19,7 +19,7 @@ def server_metadata(cfg):
     root=cfg['base_url'].rstrip('/').removesuffix('/v1')
     snapshot={'temperature':None,'temperature_source':'server default — not reported','captured_at':datetime.datetime.now(datetime.timezone.utc).isoformat()}
     try:
-        with urllib.request.urlopen(root+'/api/v1/models',timeout=30) as response:data=json.load(response)
+        with urllib.request.urlopen(urllib.request.Request(root+'/api/v1/models',headers={'Authorization':'Bearer '+cfg.get('api_key','local')}),timeout=30) as response:data=json.load(response)
         models=[m for m in data.get('models',[]) if isinstance(m,dict)]
         def instances(m):return [i for i in (m.get('loaded_instances') or []) if isinstance(i,dict)]
         # Served aliases and explicit disk variants are distinct from catalog keys.
@@ -37,9 +37,9 @@ def server_metadata(cfg):
     except Exception as e:snapshot['metadata_error']=str(e)
     if not snapshot.get('context_window'):
         try:
-            with urllib.request.urlopen(root+'/v1/models',timeout=30) as response:data=json.load(response)
+            with urllib.request.urlopen(urllib.request.Request(root+'/v1/models',headers={'Authorization':'Bearer '+cfg.get('api_key','local')}),timeout=30) as response:data=json.load(response)
             model=next((m for m in data.get('data',[]) if m.get('id')==cfg['model']),{})
-            context=model.get('context_length') or model.get('top_provider',{}).get('context_length')
+            context=model.get('context_length') or model.get('max_model_len') or model.get('top_provider',{}).get('context_length')
             if type(context) is int and context>0:
                 snapshot.update(context_window=context,context_source='server /v1/models')
         except Exception as e:snapshot['openai_metadata_error']=str(e)
@@ -63,7 +63,7 @@ def run(task,cfg,workdir,sandboxed):
     if not context:raise ValueError('Server did not report context capacity; configure context_window explicitly for this endpoint.')
     prompt=task['prompt'];disp_map=None
     chart=task.get('kind')=='chart-vqa';mcq=task.get('kind')=='mcq'
-    if chart:
+    if chart and task.get('mode')!='numeric':
         display,disp_map=hourglass.shuffle_choices(task);prompt+='\n\n'+display
     elif mcq and task.get('options'):prompt+='\n\n'+hourglass.mcq_display(task)
     final='answer_question' if chart or mcq else 'submit'
@@ -77,7 +77,7 @@ def run(task,cfg,workdir,sandboxed):
     diagnostic_dir=diagnostics.directory(ROOT,workdir,create=True)
     agent_dir=diagnostic_dir/'agent';agent_dir.mkdir(exist_ok=True,mode=0o700)
     with contextlib.nullcontext(str(agent_dir)) as private:
-        provider={'baseUrl':cfg['base_url'],'api':'openai-completions','apiKey':'local','models':[{'id':cfg['model'],'name':cfg['model'],'reasoning':True,'input':['text','image'],'contextWindow':context,'maxTokens':cfg.get('max_tokens',1024),'cost':{'input':0,'output':0,'cacheRead':0,'cacheWrite':0}}]}
+        provider={'baseUrl':cfg['base_url'],'api':'openai-completions','apiKey':cfg.get('api_key','local'),'models':[{'id':cfg['model'],'name':cfg['model'],'reasoning':True,'input':['text','image'],'contextWindow':context,'maxTokens':cfg.get('max_tokens',1024),'cost':{'input':0,'output':0,'cacheRead':0,'cacheWrite':0}}]}
         (agent_dir/'models.json').write_text(json.dumps({'providers':{'benchmark':provider}}))
         payload={'cwd':str(workdir),'agentDir':private,'model':cfg,'prompt':prompt+'\n\nCall '+final+' when finished.','images':images,
                  'instructions':(scoring_instructions+' ' if scoring_instructions else '')+'Work on exactly this benchmark question. Use the workspace tools as needed. Network access is unavailable. Finish by calling '+final+'.',

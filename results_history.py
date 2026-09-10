@@ -12,10 +12,14 @@ def load(root,jid):
     path=Path(root)/'evaluations'/(jid+'.experiment.json')
     saved=json.loads(path.read_text()) if path.exists() else {}
     details=run_editor.snapshot(root,jid)
-    if not details:return saved
+    if not details:
+        labels=run_editor.public_labels(root,jid)
+        return {**saved,**labels}
     source=path.with_name(jid+'.experiment-source.json')
     source_revision=json.loads(source.read_text()).get('run_details_revision') if source.exists() else None
-    if source_revision==details['id']:return saved
+    if source_revision==details['id']:
+        labels=run_editor.public_labels(root,jid)
+        return {**saved,**({'configuration':labels['configuration']} if 'configuration' in labels else {})}
     return {**saved,**run_editor.public_labels(root,jid)}
 
 def clean(value):
@@ -64,7 +68,7 @@ def evolution(reports):
     if not groups:out.append('<text x="30" y="70">No published runs yet.</text>')
     out.append('</g></svg>');return ''.join(out)
 
-PUBLIC_KEYS=('format','model','run_key','run_date','experiment','hardware','machine_key','bank_fingerprint','scoring','timing_policy','benchmark_version','question_timeout_policy','execution','state','weighted_points','raw_correct','active_seconds','efficiency','clock_adjustment_seconds','curve','breakdown','unsupported_vision_questions','auc','gross_points','net_points','incorrect_questions','abstained_questions','penalty_points')
+PUBLIC_KEYS=('format','display_name','model','run_key','run_date','experiment','hardware','machine_key','bank_fingerprint','scoring','timing_policy','benchmark_version','question_timeout_policy','execution','state','weighted_points','raw_correct','active_seconds','efficiency','clock_adjustment_seconds','curve','breakdown','unsupported_vision_questions','auc','gross_points','net_points','incorrect_questions','abstained_questions','penalty_points')
 
 def catalog_files(existing,report,token):
     entry={k:report[k] for k in PUBLIC_KEYS if k in report};entry['report_folder']=token

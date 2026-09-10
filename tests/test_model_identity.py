@@ -5,6 +5,7 @@ import harness_runner,model_catalog
 class ModelIdentityTests(unittest.TestCase):
  def metadata(self,identifier,models):
   def response(url,**kwargs):
+   url=getattr(url,'full_url',url)
    return io.BytesIO(json.dumps({'models':models} if '/api/' in url else {'data':[]}).encode())
   with patch.object(harness_runner.urllib.request,'urlopen',side_effect=response):
    return harness_runner.server_metadata({'base_url':'http://localhost/v1','model':identifier})

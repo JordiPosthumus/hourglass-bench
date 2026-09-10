@@ -11,6 +11,7 @@ import score_weights
 import hardware_records
 import results_history
 import report_charts
+import run_editor
 
 
 def build(root, job, rows, manifest):
@@ -20,8 +21,9 @@ def build(root, job, rows, manifest):
     if h['state']=='unavailable':raise ValueError(h['timing_note']+' This score cannot be published.')
     if any(t.get('weight_version')!=score_weights.VERSION for t in expected):
         raise ValueError('Cannot verify the frozen difficulty of every question.')
-    identity={'questions':[(t['task_sha'],t['weight'],t.get('vision',False),t['repeat']) for t in expected],
-              'order':[next(t['task_sha'] for t in expected if t['task']==tid) for tid in manifest['order']]}
+    identity={'questions':[(t.get('task_bundle_sha',t['task_sha']),t['weight'],t.get('vision',False),t['repeat']) for t in expected],
+              'order':[next(t.get('task_bundle_sha',t['task_sha']) for t in expected if t['task']==tid) for tid in manifest['order']]}
+    if manifest.get('option_layout_policy'):identity['option_layout_policy']=manifest['option_layout_policy']
     ledger=root/'timing-corrections.json'
     corrections=json.loads(ledger.read_text()) if ledger.exists() else []
     credits=[c for c in corrections if c.get('evaluation_id')==job['id']]
@@ -46,7 +48,7 @@ def build(root, job, rows, manifest):
     complete=bool(scored) and all(type(t) in (int,float) and math.isfinite(t) and t>=0 for t in tokens)
     efficiency={'accuracy':sum(bool(r.get('solved')) for r in scored)/len(scored) if scored else None,'median_output_tokens':statistics.median(tokens) if complete else None,'scored_answers':len(scored),'token_data_complete':complete,'answers_per_active_minute':len(scored)/(h['elapsed_s']/60) if h['elapsed_s']>0 and not job.get('hour_timing_unknown') else None}
     hardware=hardware_records.recorded(root,manifest)
-    report={'efficiency':efficiency,'hardware':hardware,'machine_key':hardware['machine_key'],'format':'hourglass-public-report-v1','model':str(job['model']),
+    report={'efficiency':efficiency,'hardware':hardware,'machine_key':hardware.get('comparison_key',hardware['machine_key']),'format':'hourglass-public-report-v1','model':str(job['model']),
             'created_at':dt.datetime.now(dt.timezone.utc).isoformat(),'scoring':h['scoring_policy'],'gross_points':h['gross_points'],'net_points':h['net_points'],'incorrect_questions':h['incorrect_questions'],'abstained_questions':h['abstained_questions'],'penalty_points':h['penalty_points'],
             'timing_policy':h['version'],'benchmark_version':manifest['benchmark_version'],
             'bank_fingerprint':hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest(),
@@ -56,13 +58,15 @@ def build(root, job, rows, manifest):
             'breakdown':h['breakdown'],'curve':points,
             'clock_adjustment_seconds':round(sum(c['credit_s'] for c in credits),3),
             'question_timeout_policy':job.get('question_timeout_policy'),
-            'timeouts':h.get('timeouts',0),
+            'timeouts':h['timeouts'],
             'execution':{'question_timeout_s':job.get('question_timeout_s'),'stop_after_wrong':job.get('stop_after_wrong',20),'repeat':manifest.get('repeat',1)},
             'configuration_disclosure':'Model settings not supplied; compare only equivalent settings.'}
     report['unsupported_vision_questions']=len({r['task'] for active,r in events if r.get('score_reason')=='unsupported_vision'})
     report.update(run_key=hashlib.sha256(str(job['id']).encode()).hexdigest()[:24],
                   run_date=dt.datetime.fromtimestamp(job.get('started') or job.get('created') or 0,dt.timezone.utc).isoformat(),
                   experiment=results_history.load(root,job['id']))
+    report['configuration_key']=run_editor.setup_key(manifest)
+    if manifest.get('id'):report['display_name']=run_editor.display(root,manifest)['name']
     report['auc']=report_charts.auc(points,final=h['state']=='final')
     report['auc']['scoring_policy']=h['scoring_policy']
     star='*' if credits else ''
@@ -81,9 +85,10 @@ def build(root, job, rows, manifest):
 
 
 def compatible_reports(reports, scope='same'):
-    if scope not in ('same','all'):raise ValueError('Invalid comparison scope.')
+    if scope not in ('same','all','history'):raise ValueError('Invalid comparison scope.')
     if not reports:raise ValueError('No reports to compare.')
-    keys=('bank_fingerprint',)+(() if scope=='all' else ('machine_key',))
+    if scope=='history':return list(reports)
+    keys=('bank_fingerprint',)+(() if scope!='same' else ('machine_key',))
     def major(report):
         version=str(report.get('benchmark_version') or 'unknown')
         return version.split('.')[0] if version.split('.')[0].isdigit() else version
@@ -121,7 +126,7 @@ def quadrants(reports, scope='same'):
     y=lambda a:bottom-(a-amin)/(amax-amin)*(bottom-top)
     colors=['#28674f','#4268b0','#ac6630','#98577d','#368893']
     height=650+len(points)*58
-    out=[f'<svg xmlns="http://www.w3.org/2000/svg" width="900" height="{height}" viewBox="0 0 900 {height}"><rect width="900" height="{height}" rx="16" fill="#ffffff"/><g font-family="sans-serif" fill="#34453d">',f'<text x="40" y="38" font-size="23">Accuracy × token efficiency × speed</text><text x="40" y="65" font-size="14">{html.escape("All hardware" if scope=="all" else hardware_label(reference))} · larger bubbles mean more scored answers per active minute</text>']
+    out=[f'<svg xmlns="http://www.w3.org/2000/svg" width="900" height="{height}" viewBox="0 0 900 {height}"><rect width="900" height="{height}" rx="16" fill="#ffffff"/><g font-family="sans-serif" fill="#34453d">',f'<text x="40" y="38" font-size="23">Accuracy × token efficiency × speed</text><text x="40" y="65" font-size="14">{html.escape("All versions" if scope=="history" else "All hardware" if scope=="all" else hardware_label(reference))} · larger bubbles mean more scored answers per active minute</text>']
     for bx,by,fill in [(left,top,'#fff3d9'),(cx,top,'#e0f1e4'),(left,cy,'#f9e2df'),(cx,cy,'#e8edf8')]:
         out.append(f'<rect x="{bx}" y="{by}" width="{cx-left}" height="{cy-top}" fill="{fill}"/>')
     for i in range(5):
@@ -136,7 +141,7 @@ def quadrants(reports, scope='same'):
         e=r['efficiency'];speed=e.get('answers_per_active_minute');radius=20*math.sqrt(speed/max_speed) if speed else 6
         px,py=x(e['median_output_tokens']),y(e['accuracy']);color=colors[i%len(colors)]
         rate=f'{speed:.2f}/min' if speed is not None else 'speed unavailable'
-        name=html.escape(r['model']+' · '+hardware_label(r));label=html.escape(f"{r['model']} · {hardware_label(r)} · {e['accuracy']*100:.1f}% correct · {e['median_output_tokens']:,.0f} tokens · {rate} · n={e['scored_answers']} · {r['state']}")
+        name=html.escape(r.get('display_name',r['model'])+' · '+hardware_label(r));label=html.escape(f"{r.get('display_name',r['model'])} · {hardware_label(r)} · {e['accuracy']*100:.1f}% correct · {e['median_output_tokens']:,.0f} tokens · {rate} · n={e['scored_answers']} · {r['state']}")
         out.append(f'<circle cx="{px}" cy="{py}" r="{radius}" fill="{color}" fill-opacity=".75" stroke="white" stroke-width="3"><title>{label}</title></circle><text x="{px}" y="{py-radius-8}" text-anchor="{"end" if px>cx else "start"}" font-size="11" fill="{color}">{name}</text><text x="40" y="{607+i*58}" font-size="12" fill="{color}">{label}</text><text x="40" y="{625+i*58}" font-size="11" fill="{color}">{html.escape(report_charts.rules_label(r))}</text>')
     if not points:out.append('<text x="460" y="280" text-anchor="middle">No complete output-token records for this comparison</text>')
     out.append(f'<text x="40" y="{height-20}" font-size="10">Logarithmic token axis; positive counts only ({omitted} zero-token runs omitted). Quadrants bisect the displayed ranges. Question subsets and tokenizers may differ. Bubble area is proportional to speed.</text></g></svg>')

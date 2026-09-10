@@ -62,10 +62,22 @@ def protected_profile(profile, roots, workdir, extra_files=()):
     def quoted(path):return str(Path(path).resolve()).replace('\\','\\\\').replace('"','\\"')
     lines=[profile]
     for root in dict.fromkeys(Path(r).resolve() for r in roots):
-        for name in (DIRECTORY, 'logs', 'results', 'evaluations'):
+        for name in (DIRECTORY, 'logs', 'results', 'evaluations', 'tasks', 'backups', '.git'):
             private=root/name
-            if private == cwd or cwd.is_relative_to(private):
+            if private == cwd:
                 raise ValueError('Task workspace overlaps harness-owned runtime storage.')
+            lines.append(f'(deny file-read* file-write* (subpath "{quoted(private)}"))')
+    for root in dict.fromkeys(Path(r).resolve() for r in roots):
+        lines.append(f'(deny file-read* file-write* (subpath "{quoted(root)}"))')
+    lines.append(f'(allow file-read* file-write* (subpath "{quoted(cwd)}"))')
+    for parent in cwd.parents:
+        lines.append(f'(allow file-read-metadata (literal "{quoted(parent)}"))')
+    for name in ('.codex', '.agents', '.claude', '.pi', '.hermes', '.openclaw', '.lmstudio/server-logs', '.lmstudio/conversations', '.ollama/logs'):
+        lines.append(f'(deny file-read* file-write* (subpath "{quoted(Path.home()/name)}"))')
+    # Known historical diagnostic exports may be outside the repository.
+    for base in (Path('/private/tmp'), Path(os.environ.get('TMPDIR','/private/tmp'))):
+        for private in base.glob('hourglass-*'):
+            if private.resolve()==cwd or cwd.is_relative_to(private.resolve()):continue
             lines.append(f'(deny file-read* file-write* (subpath "{quoted(private)}"))')
     for filename in extra_files:
         if not filename:continue

@@ -2,6 +2,7 @@
 """Hourglass Bench local console. Stdlib HTTP, one worker, explicit model runs only."""
 import hashlib
 import live_tps
+import question_deadline
 import json, os, signal, subprocess, threading, time, uuid, sys, mimetypes, shutil
 from collections import deque
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -12,11 +13,14 @@ import hourglass
 import calibration
 import model_scale
 import model_catalog
+import task_identity
 import model_store
 import run_tracking
 import settings_records
 import run_editor
 import endpoint_hardware
+import hardware_groups
+import hardware_records
 import attempt_reset
 import hour_score
 import scoring_policy
@@ -61,16 +65,16 @@ def task_catalog():
             if not (p.parent/asset).is_file():issues.append('Missing asset: '+asset)
         if t.get('source') and not Path(t['source']['repo']).exists():issues.append('Source repository is unavailable')
         tasks.append({'id':p.parent.name,'kind':t.get('kind','fix'),'section':section,
-                      'family':t.get('family') or section,'tier':t.get('tier',1),
+                      'task_bundle_sha':task_identity.identity(p.parent),'family':t.get('family') or section,'tier':t.get('tier',1),
                       'summary':question_context.summary(summaries,{'task':p.parent.name,'task_sha':(hourglass.sha(p) or '')[:16]}),
                       'order_tier':run_tracking.difficulty_tier(t),'tier_estimated':t.get('tier') is None and run_tracking.difficulty_tier(t) is not None,
-                      'level':t.get('level'),'title':t.get('title') or p.parent.name,'repeat':t.get('repeat',3),
+                      'level':t.get('level'),'challenge_rank':t.get('challenge_rank'),'title':t.get('title') or p.parent.name,'repeat':t.get('repeat',3),
                       'mode':t.get('mode'),'options':len(t.get('options') or t.get('choices') or []),
                       'vision':hourglass.requires_vision(t),'issues':issues,'task_type':t.get('provenance',{}).get('task_type'),
                       'timeout_s':None,'max_turns':t.get('max_turns',30)})
     return [next(t for t in tasks if t['id']==tid) for tid in ordered_tasks(tasks,[t['id'] for t in tasks])]
 
-ORDER_POLICY = 'easy_medium_hard_rotating_sections_v1'
+ORDER_POLICY = 'easy_medium_hard_with_every_fifth_challenge_v2'
 
 
 def difficulty_band(task):
@@ -84,7 +88,11 @@ def difficulty_band(task):
 
 def ordered_tasks(catalog, tids):
     lookup={t['id']:t for t in catalog}; buckets={}
-    for tid in dict.fromkeys(tids):
+    selected=list(dict.fromkeys(tids))
+    challenges=sorted((tid for tid in selected if lookup[tid].get('section')=='challenge'),
+                      key=lambda tid:(lookup[tid].get('challenge_rank') if type(lookup[tid].get('challenge_rank')) is int else float('inf'),tid))
+    for tid in selected:
+        if lookup[tid].get('section')=='challenge':continue
         t=lookup[tid];section=t.get('section') or 'code'
         section={'chart':'charts','math_logic':'math'}.get(section,section)
         buckets.setdefault(difficulty_band(t),{}).setdefault(section,[]).append(tid)
@@ -103,7 +111,26 @@ def ordered_tasks(catalog, tids):
             index=next((i for i in available if categories[i]!=previous),available[0])
             section=categories[index]
             ordered.append(sections[section].popleft());cursors[band]=(index+1)%len(categories);previous=section
-    return ordered
+    # Preserve the complete base sequence; insert after every four base items.
+    # When a subset has too few base items, append its remaining challenges.
+    mixed=[];pending=deque(challenges)
+    for i,tid in enumerate(ordered,1):
+        mixed.append(tid)
+        if i%4==0 and pending:mixed.append(pending.popleft())
+    mixed.extend(pending)
+    return mixed
+
+
+def public_task(tid):
+    """Question fields plus explicitly opted-in preview inputs; no host reads."""
+    task=read_json(TASKS/tid/'task.json',{})
+    files=task.get('files') or {}
+    allowed=task.get('public_preview_files') or []
+    if not isinstance(allowed,list):allowed=[]
+    public_files={name:files[name] for name in allowed if isinstance(name,str) and name in files and isinstance(files[name],str)}
+    return {'id':tid,'title':task.get('title',tid),'prompt':task.get('prompt',''),
+            'options':task.get('options') or task.get('choices') or [],
+            'files':list(files),'public_files':public_files,'vision':hourglass.requires_vision(task)}
 
 
 def valid_tasks(): return [t['id'] for t in task_catalog()]
@@ -140,8 +167,9 @@ def resume_plan(job, manifest, rows):
     if not reason and (not config or calibration.digest(config)!=manifest['config_hash']):
         reason='The saved model settings changed. Start a fresh run to keep results comparable.'
     if not reason:
+        task_root=ROOT/manifest['task_snapshot'] if manifest.get('task_snapshot') else TASKS
         for t in manifest['expected']:
-            if (hourglass.sha(TASKS/t['task']/'task.json') or '')[:16]!=t['task_sha']:
+            if (hourglass.sha(task_root/t['task']/'task.json') or '')[:16]!=t['task_sha'] or (t.get('task_bundle_sha') and task_identity.identity(task_root/t['task'])!=t['task_bundle_sha']):
                 reason='Question content changed. Start a fresh run.';break
     mixed=manifest['benchmark_version']!=hourglass.BENCHMARK_VERSION
     return {'allowed':reason is None,'reason':reason,'remaining_questions':len(missing),
@@ -149,7 +177,7 @@ def resume_plan(job, manifest, rows):
             'version_warning':f"This run began on v{manifest['benchmark_version']}; continuing on v{hourglass.BENCHMARK_VERSION} mixes versions and is excluded from calibration." if mixed else None}
 
 def public_job(job, rows=None):
-    result={k:job.get(k) for k in ('id','label','model','results_reset','scoring_policy','tasks','repeat','state','rc','created','started','ended','current_task','completed_tasks','total_tasks','error','stopped_after','resume_count','stop_after_wrong','stop_requested','stop_reason','active_intervals','hour_timing_unknown','timing_recoveries')}
+    result={k:job.get(k) for k in ('id','label','model','results_reset','scoring_policy','tasks','repeat','state','rc','created','started','ended','current_task','completed_tasks','total_tasks','error','stopped_after','resume_count','stop_after_wrong','stop_requested','stop_reason','active_intervals','hour_timing_unknown','timing_recoveries','question_timeout_s','question_timeout_policy','question_elapsed_s','question_deadline_at')}
     if rows is not None:
         manifest=read_json(ROOT/'evaluations'/(job['id']+'.json'))
         if manifest:
@@ -162,6 +190,7 @@ def public_job(job, rows=None):
             result['resume']=resume_plan(job,manifest,rows)
             result['user_settings']=settings_records.records(ROOT,job['id'])
             result['run_details']=run_editor.snapshot(ROOT,job['id'])
+            result['run_identity']=run_editor.display(ROOT,manifest)
     result['telemetry']=live_tps.snapshot(ROOT,job)
     return result
 
@@ -182,7 +211,7 @@ def state():
             'endpoint_hardware':endpoint_hardware.snapshot(ROOT,doc.get('models',[])),
             'calibration_available':True,'benchmark_version':hourglass.BENCHMARK_VERSION,'harness':{'name':'pi','version':'0.85.1','temperature_policy':'server_default'},
             'score_policy':{'version':hour_score.VERSION,'window_s':hour_score.WINDOW_S,'metric':'net_weighted_points_within_active_hour','scoring_policy':scoring_policy.NET},
-            'execution_policy':{'timeouts':False,'stop_after_wrong':run_tracking.STOP_AFTER_WRONG,'order':ORDER_POLICY},
+            'execution_policy':{'timeouts':True,'question_timeout_s':question_deadline.LIMIT_S,'question_timeout_policy':question_deadline.POLICY,'stop_after_wrong':run_tracking.STOP_AFTER_WRONG,'order':ORDER_POLICY},
             'provenance':read_json(ROOT/'provenance.json',{}),'jobs':jobs,
             'sandbox_available':shutil.which('sandbox-exec') is not None}
 
@@ -239,8 +268,7 @@ def stop_job(body):
         job['stop_reason']='hour_limit' if body.get('reason')=='hour_limit' else 'user'
         proc=job.get('_process')
         if proc is not None and proc.poll() is None:
-            try:os.killpg(proc.pid,signal.SIGTERM)
-            except ProcessLookupError:pass
+            question_deadline.terminate_group(proc)
         return {'ok':True,'job':job['id']}
 
 def reset_attempts(body):
@@ -330,12 +358,14 @@ def worker():
             if worker_stop:return
             job=queue.popleft();now=time.time()
             job.update(state='running',active_started=now,elapsed_s=job.get('elapsed_s',0))
+            job['_hour_deadline_monotonic']=time.monotonic()+max(0,hour_score.WINDOW_S-job['elapsed_s'])
+            job.setdefault('question_elapsed_s',{})
             job.setdefault('active_intervals',[]).append({'start':now,'end':None})
             if not job.get('started'):job['started']=now
             running.append(job);calibration.update_evaluation(ROOT,job)
             threading.Thread(target=hour_deadline.watch_job,args=(job,condition,stop_job),daemon=True).start()
-        threading.Thread(target=live_tps.collect,args=(ROOT,job,condition),daemon=True).start()
         LOGS.mkdir(exist_ok=True)
+        threading.Thread(target=live_tps.collect,args=(ROOT,job,condition),daemon=True).start()
         try:
             manifest=saved_manifest(job['id'])
             current_config=next((m for m in model_document().get('models',[]) if m.get('name')==manifest.get('model')),None)
@@ -353,9 +383,22 @@ def worker():
                     skip=wrong_streak>=stop_limit
                     if missing:
                         with condition:job['current_task']=tid
-                        qstart=time.time();qmono=time.monotonic();token=uuid.uuid4().hex
-                        job['active_question']={'token':token,'task':tid,'started_at':qstart,'elapsed_before_s':job.get('question_elapsed_s',{}).get(tid,0)}
+                        qstart=time.time();qmono=time.monotonic();qlimit=question_deadline.configured_limit(job)
+                        qremaining=max(0,qlimit-job['question_elapsed_s'].get(tid,0)) if qlimit else None
+                        qdeadline=qmono+qremaining if qlimit else None
+                        job['question_deadline_at']=qstart+qremaining if qlimit else None
+                        token=uuid.uuid4().hex
+                        job['active_question']={'token':token,'task':tid,'started_at':qstart,
+                                                'elapsed_before_s':job['question_elapsed_s'].get(tid,0)}
                         calibration.update_evaluation(ROOT,job)
+                        checkpoint=LOGS/f"attempt-{job['id']}.json"
+                        question_deadline.checkpoint(checkpoint,{})
+                        env=dict(os.environ,NODE_ID=os.environ.get('NODE_ID','unknown'),HOURGLASS_EVALUATION_ID=job['id'],HOURGLASS_SCORING_POLICY=job.get('scoring_policy',scoring_policy.LEGACY),HOURGLASS_SKIP_REASON='wrong_streak_limit' if skip else '',HOURGLASS_STOP_AFTER_WRONG=str(stop_limit),HOURGLASS_ATTEMPT_CHECKPOINT=str(checkpoint),HOURGLASS_TELEMETRY_PHASE=str(LOGS/f"phase-{job['id']}.json"))
+                        env.update(HOURGLASS_CONTROLLER_PID=str(os.getpid()),HOURGLASS_QUESTION_TOKEN=token,
+                                   HOURGLASS_QUESTION_TASK=tid,HOURGLASS_QUESTION_STARTED_AT=str(qstart),
+                                   HOURGLASS_QUESTION_STARTED_MONOTONIC=str(qmono))
+                        if qlimit:
+                            env.update(HOURGLASS_QUESTION_TIMEOUT_S=str(qlimit),HOURGLASS_QUESTION_STARTED_AT=str(qstart),HOURGLASS_QUESTION_DEADLINE_AT=str(job['question_deadline_at']),HOURGLASS_QUESTION_DEADLINE_MONOTONIC=str(qdeadline))
                         cmd=[sys.executable,'-u',str(ROOT/'hourglass.py'),'run',tid,'--model',job['model'],
                              '--config',str(config_path),'--repeat',str(expected[tid]),'--repeat-indices',','.join(map(str,missing))]
                         log.write(f"\n=== {tid} · repeats {','.join(map(str,missing))} ===\n");log.flush()
@@ -363,10 +406,20 @@ def worker():
                             if job.get('stop_requested'):
                                 job.update(state='stopped',error=None);break
                             proc=subprocess.Popen(cmd,cwd=ROOT,stdout=log,stderr=subprocess.STDOUT,start_new_session=True,
-                                                  env=dict(os.environ,HOURGLASS_CONTROLLER_PID=str(os.getpid()),HOURGLASS_QUESTION_TOKEN=token,HOURGLASS_QUESTION_TASK=tid,HOURGLASS_QUESTION_STARTED_AT=str(qstart),HOURGLASS_QUESTION_STARTED_MONOTONIC=str(qmono),NODE_ID=os.environ.get('NODE_ID','unknown'),HOURGLASS_EVALUATION_ID=job['id'],HOURGLASS_SCORING_POLICY=job.get('scoring_policy',scoring_policy.LEGACY),HOURGLASS_SKIP_REASON='wrong_streak_limit' if skip else '',HOURGLASS_STOP_AFTER_WRONG=str(stop_limit)))
+                                                  env=env)
                             job['_process']=proc
-                        rc=proc.wait()
-                        with condition:job.pop('_process',None)
+                        rc,timed_out=question_deadline.wait(proc,job,condition,qdeadline)
+                        with condition:
+                            job.pop('_process',None)
+                            job['question_elapsed_s'][tid]=job['question_elapsed_s'].get(tid,0)+max(0,time.monotonic()-qmono)
+                            calibration.update_evaluation(ROOT,job)
+                        raw=run_tracking.raw_attempts(manifest,result_rows())
+                        if timed_out and not any(r.get('task')==tid and r.get('status')=='timeout' for r in raw):
+                            state=read_json(checkpoint,{})
+                            missing_now=run_tracking.missing_repeats(manifest,raw,tid)
+                            if missing_now:
+                                question_deadline.timeout_record(ROOT,manifest,job,tid,state.get('run') if state.get('run') in missing_now else missing_now[0],state,qstart,job['question_deadline_at'],hourglass.BENCHMARK_VERSION)
+                        if timed_out:rc=0
                         if job.get('stop_requested'):
                             job.update(state='stopped',rc=rc,error=None)
                             log.write('\n'+('ONE-HOUR DEADLINE REACHED. Score frozen; completed attempts retained.' if job.get('stop_reason')=='hour_limit' else 'STOPPED BY USER. Completed attempts retained; unfinished attempts can be resumed.')+'\n');log.flush();break
@@ -378,7 +431,7 @@ def worker():
                             with condition:job.update(state='error',rc=1,error=f'{tid} did not produce a valid result.')
                             break
                     with condition:job['completed_tasks']+=1
-                    if not skip:
+                    if not skip and not any(r.get('task')==tid and r.get('status')=='timeout' for r in raw):
                         attempts=[r for r in run_tracking.effective_attempts(raw) if r.get('task')==tid]
                         if scoring_policy.is_net(job.get('scoring_policy')) and not any(scoring_policy.final_answer(r) for r in attempts):continue
                         wrong_streak=0 if any(r.get('solved') for r in attempts) else wrong_streak+1
@@ -457,28 +510,44 @@ def start_worker():
         worker_stop=False;worker_thread=threading.Thread(target=worker,daemon=True);worker_thread.start()
 
 def enqueue(body):
+    with model_store.editing(ROOT):
+        document,revision=model_store.read(ROOT)
+        if body.get('models_revision') is not None and body['models_revision']!=revision:
+            raise ValueError('Model settings changed after review. Refresh and review the run again.')
+        return _enqueue_reviewed(body,document)
+
+def _enqueue_reviewed(body,document):
     model=body.get('model'); tids=body.get('tasks'); repeat=body.get('repeat')
-    if model not in model_names():raise ValueError('Choose a saved model.')
+    if model not in [m.get('name') for m in document.get('models',[])]:raise ValueError('Choose a saved model.')
     if not isinstance(tids,list) or not tids or any(not isinstance(t,str) for t in tids):raise ValueError('Choose at least one test.')
     catalog={t['id']:t for t in task_catalog()}
     tids=list(dict.fromkeys(tids))
     if any(t not in catalog for t in tids):raise ValueError('A selected test no longer exists. Refresh the library.')
+    if body.get('task_bundles') is not None and body['task_bundles']!={t:catalog[t]['task_bundle_sha'] for t in tids}:
+        raise ValueError('Question bundles changed after review. Refresh and review again.')
     bad=[t for t in tids if catalog[t]['issues']]
     if bad:raise ValueError('These tests need repair before running: '+', '.join(bad))
     if repeat is not None and (type(repeat) is not int or repeat<1):raise ValueError('Repeats must be a positive whole number, or use task defaults.')
     tids=ordered_tasks(list(catalog.values()),tids)
     job={'scoring_policy':scoring_policy.NET,'id':uuid.uuid4().hex,'label':f'{model} · {len(tids)} tests','model':model,'tasks':tids,
-         'repeat':repeat,'stop_after_wrong':run_tracking.STOP_AFTER_WRONG,'state':'pending','created':time.time(),'completed_tasks':0,'total_tasks':len(tids)}
-    config=next(m for m in model_document()['models'] if m['name']==model)
+         'repeat':repeat,'question_timeout_s':question_deadline.LIMIT_S,'question_timeout_policy':question_deadline.POLICY,'stop_after_wrong':run_tracking.STOP_AFTER_WRONG,'state':'pending','created':time.time(),'completed_tasks':0,'total_tasks':len(tids)}
+    config=next(m for m in document['models'] if m['name']==model)
+    if body.get('task_bundles') is not None:job['reviewed_task_bundles']=body['task_bundles']
     with condition:
         if shutting_down:raise ValueError('The bench is shutting down. Restart it before starting a run.')
         if 'hardware_revision' in body and body['hardware_revision']!=endpoint_hardware.revision(endpoint_hardware.load(ROOT)):
             raise ValueError('Hardware settings changed after review. Refresh and review the run again.')
+        naming=run_editor.required_identity(body.get('identity') or run_editor.initial_identity(ROOT,config)['values'])
         source=saved_manifest(body['copy_from']) if body.get('copy_from') else None
         if source and source['model']!=model:raise ValueError('Copied run details belong to another model. Clear the copied setup before changing models.')
         manifest=calibration.evaluation_manifest(ROOT,job,hourglass.BENCHMARK_VERSION,config)
         if source:run_editor.copy_setup(ROOT,source,manifest)
         else:run_editor.reuse_setup(ROOT,manifest)
+        current=run_editor.snapshot(ROOT,manifest['id'])
+        values={**(current or {}).get('values',{})}
+        for key in (*__import__('run_naming').IDENTITY_FIELDS,'run_name'):values.pop(key,None)
+        values.update(naming)
+        run_editor.save(ROOT,manifest,{'values':values,'base_revision':(current or {}).get('id'),'applies_from':'run_start','reason':'Confirmed configuration name before starting.'})
         queue.append(job);condition.notify_all()
     return job
 
@@ -487,7 +556,7 @@ def check_model(name):
     if name not in models:raise ValueError('Unknown saved model')
     m=models[name];url=m['base_url'].rstrip('/')+'/models';t=time.time()
     try:
-        with urllib.request.urlopen(url,timeout=30) as r:doc=json.load(r)
+        with urllib.request.urlopen(urllib.request.Request(url,headers={'Authorization':'Bearer '+m.get('api_key','local')}),timeout=30) as r:doc=json.load(r)
         available=[x['id'] for x in doc.get('data',[]) if isinstance(x,dict) and isinstance(x.get('id'),str)]
         return {'name':name,'reachable':True,'listed':m['model'] in available,'available':available,
                 'latency_ms':round((time.time()-t)*1000),'checked_at':time.time(),
@@ -505,7 +574,7 @@ class H(BaseHTTPRequestHandler):
     def score_route(self,method):
         global score_handler
         with condition:
-            if score_handler is None:score_handler=score_publisher.handler(ROOT,PORT,PORT,'JordiPosthumus/hourglass-bench',prefix='/scores')
+            if score_handler is None:score_handler=score_publisher.handler(ROOT,PORT,PORT,os.environ.get('HOURGLASS_REPORT_REPO',''),prefix='/scores')
         getattr(score_handler,method)(self)
     def send(self,data,kind='application/json',status=200):
         self.send_bytes(data.encode(),status,kind)
@@ -513,10 +582,12 @@ class H(BaseHTTPRequestHandler):
         if self.path=='/scores' or self.path.startswith('/scores/'):
             self.score_route('do_GET');return
         u=urlparse(self.path);q=parse_qs(u.query)
+        if u.path=='/api/hardware-groups':
+            self._json(hardware_groups.snapshot(ROOT));return
         if u.path=='/api/run-editor':
             try:
                 jid=q.get('job',[''])[0];manifest=saved_manifest(jid)
-                self._json({**run_editor.catalog(ROOT),'history':run_editor.history(ROOT,jid),'captured':{k:manifest.get(k) for k in ('model','model_id','config_hash','hardware','benchmark_version','scoring_policy')},'requested':{k:manifest.get('model_config_snapshot',{}).get(k) for k in ('context_window','max_tokens','reasoning','hardware')}})
+                self._json({**run_editor.catalog(ROOT),'history':run_editor.history(ROOT,jid),'identity':run_editor.display(ROOT,manifest),'values':run_editor.display_values(ROOT,manifest),'captured':{k:manifest.get(k) for k in ('model','model_id','config_hash','hardware','benchmark_version','scoring_policy')},'requested':{k:manifest.get('model_config_snapshot',{}).get(k) for k in ('context_window','max_tokens','reasoning','hardware')}})
             except ValueError as e:self._json({'error':str(e)},400)
             return
         if u.path=='/api/state':self._json(state());return
@@ -544,10 +615,7 @@ class H(BaseHTTPRequestHandler):
         if u.path=='/api/task':
             tid=q.get('id',[''])[0]
             if tid not in valid_tasks():self._json({'error':'Unknown test'},404);return
-            t=read_json(TASKS/tid/'task.json',{})
-            # Deliberately omit host-side answers and private verifier contents.
-            self._json({'id':tid,'title':t.get('title',tid),'prompt':t.get('prompt',''),
-                        'options':t.get('options') or t.get('choices') or [],'files':list((t.get('files') or {}).keys())});return
+            self._json(public_task(tid));return
         if u.path=='/api/attempt-reset':
             self._json(attempt_reset.snapshot(ROOT));return
         if u.path=='/api/file':
@@ -586,8 +654,23 @@ class H(BaseHTTPRequestHandler):
                 scope=calibration.set_reference(ROOT,result_rows(),b);self._json({'ok':True,'scope':scope});return
             if route=='/api/calibration/remove':
                 calibration.remove_reference(ROOT,b);self._json({'ok':True});return
+            if route=='/api/hardware-groups':
+                with condition:self._json(hardware_groups.save(ROOT,b))
+                return
+            if route=='/api/run-identity':
+                config=next((m for m in model_document()['models'] if m.get('name')==b.get('model')),None)
+                if config is None:raise ValueError('Choose a saved model.')
+                self._json(run_editor.initial_identity(ROOT,config));return
+            if route=='/api/run-name':
+                import run_naming
+                manifest=saved_manifest(b.get('job'))
+                values=run_editor.clean(b.get('values'))
+                if values.get('hardware'):values['hardware']=hardware_groups.canonical_label(ROOT,values['hardware'])
+                self._json(run_naming.describe(manifest,values,hardware_records.recorded(ROOT,manifest)));return
             if route=='/api/run-editor':
-                with condition:record=run_editor.save(ROOT,saved_manifest(b.get('job')),b)
+                with condition:
+                    manifest=saved_manifest(b.get('job'))
+                    record=run_editor.save(ROOT,manifest,b)
                 self._json({'ok':True,'record':record});return
             if route=='/api/run-settings':self._json({'ok':True,'record':record_settings(b)});return
             if route=='/api/stop':self._json(stop_job(b));return

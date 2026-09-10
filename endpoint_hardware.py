@@ -89,7 +89,10 @@ def save(root, models, body):
     if choice == 'local':
         if not local_url(endpoint):
             raise ValueError('This computer can only be selected for a local endpoint.')
-        updated.pop(endpoint, None)
+        import hardware_records
+        captured=hardware_records.capture(root,{'base_url':endpoint,'inference_location':'local'})
+        if not captured:raise ValueError('Could not inspect this machine. Enter its hardware details explicitly.')
+        updated[endpoint]={**{k:captured[k] for k in ('label','chip','memory_bytes','cpu_cores','gpu') if k in captured},'machine_id':(root/'.machine-id').read_text().strip()}
     else:
         values = validate_fields(body)
         machines = {str(p['machine_id']): p for p in profiles.values() if p.get('machine_id')}

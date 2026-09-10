@@ -59,7 +59,7 @@ def progress_chart(reports,scope='same',legend=True):
     ymin-=span*.04 if ymin<0 else 0;ymax+=span*.04
     x=lambda s:left+min(3600,s)/3600*(right-left)
     y=lambda v:bottom-(v-ymin)/(ymax-ymin)*(bottom-top)
-    hardware='All hardware' if scope=='all' else reports[0].get('hardware',{}).get('label','Hardware not recorded')
+    hardware=('All runs · all benchmark versions' if scope=='history' else 'All hardware') if scope!='same' else reports[0].get('hardware',{}).get('label','Hardware not recorded')
     esc=html.escape
     out=[f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" style="max-width:100%;height:auto"><rect width="{width}" height="{height}" rx="20" fill="#f5f7f5"/><g font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif" fill="#233f35">',
          '<text x="40" y="37" font-size="11" font-weight="600" letter-spacing="2" fill="#71827a">HOURGLASS BENCH</text><text x="40" y="74" font-size="29" font-weight="650">Progress through the hour</text>',
@@ -72,16 +72,22 @@ def progress_chart(reports,scope='same',legend=True):
     for minute in range(0,61,10):
         xx=x(minute*60);out.append(f'<text x="{xx}" y="{bottom+27}" text-anchor="middle" font-size="12" fill="#78897f">{minute}</text>')
     out.append(f'<text x="{(left+right)/2}" y="{bottom+52}" text-anchor="middle" font-size="12" fill="#78897f">ACTIVE MINUTES</text>')
-    for i,r in enumerate(reports):
+    has_current=any(r.get('is_current_run') for r in reports)
+    # Retain palette/legend positions while painting the selected series last.
+    for i,r in sorted(enumerate(reports),key=lambda item:bool(item[1].get('is_current_run'))):
+        current=bool(r.get('is_current_run'))
+        opacity=1 if current or not has_current else .3
+        out.append(f'<g opacity="{opacity}" data-current="{str(current).lower()}">')
         color=color_for(i);points=step_points(r['curve']);coords=' '.join(f"{x(p['seconds']):.2f},{y(p['weighted']):.2f}" for p in points)
         dash=' stroke-dasharray="7 5"' if r.get('state')!='final' else ''
-        out.append(f'<polyline points="{coords}" fill="none" stroke="{color}" stroke-width="{4.5 if r.get('is_current_run') else 2.2}" stroke-linecap="round" stroke-linejoin="round"{dash}/>')
+        out.append(f'<polyline points="{coords}" fill="none" stroke="{color}" stroke-width="{6 if current else 2.2}" stroke-linecap="round" stroke-linejoin="round"{dash}/>')
         for p in measured_points(r['curve'])[1:]:
-            out.append(f'<circle cx="{x(p["seconds"]):.2f}" cy="{y(p["weighted"]):.2f}" r="3.6" fill="white" stroke="{color}" stroke-width="2"><title>{esc(r["model"])}: {p["weighted"]:.2f} points at {p["seconds"]/60:.2f} active minutes</title></circle>')
+            out.append(f'<circle cx="{x(p["seconds"]):.2f}" cy="{y(p["weighted"]):.2f}" r="{4.4 if current else 3.6}" fill="white" stroke="{color}" stroke-width="{2.8 if current else 2}"><title>{esc(r.get("display_name",r["model"]))}: {p["weighted"]:.2f} points at {p["seconds"]/60:.2f} active minutes</title></circle>')
+        out.append('</g>')
         if legend:
             xx=40+(i%2)*530;yy=653+(i//2)*64
             star='*' if r.get('clock_adjustment_seconds') else ''
-            name=r['model']+(' · CURRENT RUN' if r.get('is_current_run') else '')
+            name=r.get('display_name',r['model'])+(' · CURRENT RUN' if r.get('is_current_run') else '')
             short=name if len(name)<=57 else name[:54]+'…'
             meta=r.get('hardware',{}).get('label','Hardware not recorded')+' · '+rules_label(r)
             short_meta=meta if len(meta)<=88 else meta[:85]+'…'

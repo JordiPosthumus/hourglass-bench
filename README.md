@@ -24,7 +24,7 @@ Scores are comparable only when models use the **same questions, order, repeat p
 
 - 1–2 fixed difficulty points for each distinct question answered correctly within 3,600 active seconds, alongside the raw correct count.
 - Thinking, tools, initialization, grading, and retries consume the time budget. Pauses between resumes do not.
-- Wrong, unfinished, and unreached questions earn no points.
+- Correct questions earn 1–2 points; an incorrect final answer costs 1 point. Timeouts, unsupported vision, and no final answer earn zero.
 - Text and vision subtotals accompany the main score.
 - At one hour, the harness stops the benchmark process group and plays a short system chime.
 - Results preserve per-attempt timing, token usage, tool traces, model settings provenance, and question hashes.
@@ -35,9 +35,9 @@ Difficulty weights are versioned as `weighted-hour-v1`; the active-clock boundar
 
 Regular questions cycle through **easy → medium → hard**, rotating subjects within each difficulty band. This gives the early part of a run a mixture of difficulty and subject matter. The order is fixed before the run and does not adapt to the model's answers.
 
-The private version 2.2 reference evaluation adds a challenge after every four regular questions. The regular cycle continues across those insertions. Its 120-question bank remains private; the public runtime currently implements the regular waves.
+The private version 2.2 reference evaluation adds a challenge after every four regular questions. The regular cycle continues across those insertions. Its 120-question bank remains private; the public runtime supports this cadence for user-authored challenge tasks.
 
-All waves share the same one-hour clock, with no separate short per-question limit. Time spent reasoning and checking answers reduces the time available for later questions. Read [the method: waves of questions](docs/methodology.md) for the sequence, challenge cadence, scoring rationale and comparison limits.
+All waves share the same one-hour clock. Each question has a 15-minute total limit, including tools, retries and repeats. Time spent reasoning and checking answers reduces the time available for later questions. Read [the method: waves of questions](docs/methodology.md) for the sequence, challenge cadence, scoring rationale and comparison limits.
 
 ## Requirements
 
@@ -61,7 +61,7 @@ Add your own local task definitions under `tasks/<your-id>/task.json`, following
 ./start-hourglass.sh
 ```
 
-The UI opens on a free loopback port, normally `http://127.0.0.1:8788`. Select your bank and model, use **one repeat** for the standard score, review, and start. Use `HOURGLASS_PORT=8790 ./start-hourglass.sh --no-open` for an explicit port.
+The UI opens on a free loopback port, normally `http://127.0.0.1:4534`. Select your bank and model, use **one repeat** for the standard score, review, and start. Use `HOURGLASS_PORT=8790 ./start-hourglass.sh --no-open` for an explicit port.
 
 ## Frozen agent harness
 
@@ -98,7 +98,7 @@ See [the model, hardware and release maintenance guide](docs/maintenance.md) bef
 
 New UI runs use `net-hour-v2`: +1–2 by difficulty for a correct question, −1 for a submitted incorrect final answer, and zero for unsupported vision, timeout or no final submission. Tool errors have no direct penalty. Each question is counted once; any correct repeat supersedes a previous wrong submission, otherwise a question with an incorrect submission loses one point. Gross points, incorrect counts and abstentions remain visible. The original question instructions and final-answer tool schema are retained; scoring is applied by the grader without an extra scoring paragraph. Explicit abstention is not offered. Historical `net-hour-v1` runs retain their original abstention rules and are compared separately. Net scores and signed step AUC can be negative. Historical runs retain their original scoring policy and comparison cohort.
 
-Open **Run editor** beside the saved-run selector to record model/revision, quantization, server/version or PR, hardware, sampling settings, limits, reasoning, concurrency, cache details and notes. Each field offers persistent saved choices and accepts a new value. Saving creates an immutable revision and retains older choices. You can restore an earlier revision's values and save them as a new revision. Descriptions are user-reported; captured execution records are shown separately. This editor records details and does not change endpoint configuration. Run records and reusable choices stay local.
+Open **Run editor** beside the saved-run selector to record model/revision, quantization, server/version or PR, hardware, sampling settings, limits, reasoning, concurrency, cache details and notes. Identity components offer saved choices and lint new values; the run name is generated from those components. Saving creates an immutable revision and retains older choices. You can restore an earlier revision's values and save them as a new revision. Descriptions are user-reported; captured execution records are shown separately. This editor records details and does not change endpoint configuration. Run records and reusable choices stay local.
 
 The console defaults to `http://127.0.0.1:4534`. Score preview and publication review are served on the same site under `/scores/`; the launcher no longer starts a second listener. An explicit port environment variable still overrides the default.
 
@@ -106,7 +106,7 @@ The console defaults to `http://127.0.0.1:4534`. Score preview and publication r
 
 Run configuration is captured at enqueue time and passed unchanged to each question. Editing saved endpoints affects future runs. Interrupted runs with uncertain active time keep their results but withhold a final hourly score; use New run to reuse their setup. Final status waits for all planned repeats or the hour boundary. Timeouts are excluded from answer accuracy. Historical policy names are normalized consistently.
 
-New run copies the selected run’s model, question selection, repeats and recorded details, while starting a new clock under the current grading policy. Run editor labels populate score preview; notes remain local. Explicit report-label overrides remain until the run details change. Token-efficiency charts use a base-10 logarithmic x-axis, with fewer tokens to the right; zero-token points are omitted and counted in the caption.
+New run copies the selected run’s model, question selection, repeats and recorded details, while starting a new clock under the current grading policy. Run editor labels populate score preview; notes remain local. Explicit report-label overrides remain until the run details change, except the configuration name, which always follows the canonical identity. Token-efficiency charts use a base-10 logarithmic x-axis, with fewer tokens to the right; zero-token points are omitted and counted in the caption.
 
 See [the exact prompt contract](docs/prompt-contract.md).
 
@@ -156,3 +156,11 @@ New attempts keep harness traces, stderr, integrity records, Pi request configur
 In the run view, choose **Reset & rerun questions**, select individual attempts, enter a reason and reset once active and queued work are idle. Raw artifacts remain available; a timestamped backup saves the original index, manifests and reference scales. A reset ledger prevents crash recovery from restoring deliberately removed results. Reset runs cannot publish their old hourly score or resume that clock. The rerun buttons select affected questions and the saved model; review the new run to start it. Previous reset plans remain accessible from the same control. These are fresh targeted evaluations, not replacements for a complete one-hour comparison.
 
 For endpoints that return incomplete streamed tool arguments, an explicitly selected `"response_mode": "complete"` in a saved model configuration requests complete JSON responses. The benchmark adapts these for frozen Pi, preserving reasoning, usage and tool arguments. Generation settings and the direct endpoint stay unchanged; token-by-token progress is unavailable until each response finishes. The default remains streaming.
+
+## Canonical run identity and bank hardening (2.6.0)
+
+Hardware comparison groups are editable for any installation; original labels, machine identities and results are retained. New evaluations freeze complete question bundles, reject stale configuration reviews, and randomize option IDs and positions with auditable seeds. See [run identity and migration](docs/run-identity.md).
+
+## Readable configurations and complete history (2.6.1)
+
+Names use compact hardware/server-recipe/model/quantization components, are editable and resettable, and persist across repeated runs of the same configuration. New-run review requires missing identity details. All historical runs remain selectable across bank versions. Completed equivalent repeats can be averaged or expanded to individual measurements. See [run identity and comparison details](docs/run-identity.md).

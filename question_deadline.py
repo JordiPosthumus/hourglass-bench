@@ -27,23 +27,39 @@ def configured_limit(job):
     return value
 
 
+_TERMINATION_LOCK = threading.Lock()
+
+
 def terminate_group(proc):
-    """Cancel native Pi, then bound cleanup if a child ignores the signal."""
-    try:
-        os.killpg(proc.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return
-
-    def force_if_needed():
+    """One cancellation per child group, even when both deadlines fire together."""
+    with _TERMINATION_LOCK:
+        if hasattr(proc, '_hourglass_termination_timer'):
+            return proc._hourglass_termination_timer
         try:
-            os.killpg(proc.pid, signal.SIGKILL)
+            os.killpg(proc.pid, signal.SIGTERM)
         except ProcessLookupError:
-            pass
+            return None
+        except PermissionError:
+            # macOS may return EPERM for a group that has just disappeared.
+            # Preserve genuine errors when the process is still alive.
+            if proc.poll() is not None:return None
+            raise
 
-    timer = threading.Timer(STOP_GRACE_S, force_if_needed)
-    timer.daemon = True
-    timer.start()
-    return timer
+        def force_if_needed():
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except PermissionError:
+                try:os.getpgid(proc.pid)
+                except ProcessLookupError:return
+                raise
+
+        timer = threading.Timer(STOP_GRACE_S, force_if_needed)
+        timer.daemon = True
+        proc._hourglass_termination_timer = timer
+        timer.start()
+        return timer
 
 
 def wait(proc, job, condition, deadline):
@@ -66,7 +82,7 @@ def wait(proc, job, condition, deadline):
     rc = proc.wait() if rc is None else rc
     if timer is not None:
         try:os.killpg(proc.pid, 0)
-        except ProcessLookupError:pass
+        except (ProcessLookupError,PermissionError):pass
         else:timer.join(STOP_GRACE_S + .1)
     return rc, timed_out
 
@@ -128,6 +144,7 @@ def timeout_record(root, manifest, job, tid, repeat, state, started, deadline, v
            'evaluation_id': job['id'], 'model_config_hash': manifest.get('config_hash'),
            'scoring_policy':manifest.get('scoring_policy') or 'weighted-hour-v1',
            'benchmark_version': version, 'task_sha': expected['task_sha'],
+           **({'task_bundle_sha':expected['task_bundle_sha']} if expected.get('task_bundle_sha') else {}),
            'artifact_dir': str(artifact.relative_to(root)), 'kind': task.get('kind', 'mcq'),
            'section': task.get('section'), 'family': task.get('family'), 'tier': task.get('tier'),
            'mode': task.get('mode'), 'node': prov.get('node'), 'pi_version': prov.get('pi_version'),

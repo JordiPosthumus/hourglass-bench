@@ -19,8 +19,8 @@ def catalog(root):
 def summary(entries, expected):
     entry=entries.get(expected.get('task'),{})
     if not isinstance(entry,dict):return 'Summary unavailable for this question version'
-    text=entry.get('summary')
-    if entry.get('task_sha')==expected.get('task_sha') and isinstance(text,str) and 5<=len(text.split())<=7:
+    text=entry.get('summary') if entry.get('task_sha')==expected.get('task_sha') else entry.get('versions',{}).get(expected.get('task_sha'))
+    if (entry.get('task_sha')==expected.get('task_sha') or expected.get('task_sha') in entry.get('versions',{})) and isinstance(text,str) and 5<=len(text.split())<=7:
         return text
     return 'Summary unavailable for this question version'
 
@@ -59,16 +59,21 @@ def timeline(job, manifest, rows, entries, now):
     return {'spans':spans,'end_s':round(end,3),'state':job.get('state'),'timing_basis':'Active wall time between recorded question completions; includes setup, thinking, tools and retries. Pauses excluded.'}
 
 
-def build(root, reports, jobs, rows, now):
+def build(root, reports, jobs, rows, now, individual_reports=None):
     entries=catalog(root)
     lookup={hashlib.sha256(str(j['id']).encode()).hexdigest()[:24]:j for j in jobs}
     models=[]
     for index,report in enumerate(reports):
+        if report.get('member_run_keys'):
+            members=[r for r in (individual_reports or []) if r['run_key'] in report['member_run_keys']]
+            children=build(root,members,jobs,rows,now)['models']
+            models.append({'id':report['run_key'],'model':report['model'],'display_name':report['display_name'],'color':report_charts.color_for(index),'current':False,'points':report['weighted_points'],'hardware':report.get('hardware',{}).get('label',''),'rules':report_charts.rules_label(report),'members':children,'spans':[],'end_s':3600,'state':'final'})
+            continue
         job=lookup.get(report['run_key'])
         if not job:continue
         manifest=json.loads((Path(root)/'evaluations'/(job['id']+'.json')).read_text())
-        models.append({'id':job['id'],'model':report['model'],'display_name':(job.get('run_details') or {}).get('values',{}).get('run_name') or (job.get('run_details') or {}).get('values',{}).get('model_name') or report['model'],'hardware':report.get('hardware',{}).get('label','Hardware not recorded'),
-                       'color':report_charts.color_for(index),'current':bool(report.get('is_current_run')),
+        models.append({'id':job['id'],'model':report['model'],'display_name':report.get('display_name') or (job.get('run_identity') or {}).get('name') or (job.get('run_details') or {}).get('values',{}).get('run_name') or (job.get('run_details') or {}).get('values',{}).get('model_name') or report['model'],'hardware':report.get('hardware',{}).get('label','Hardware not recorded'),
+                       'color':report_charts.color_for(index),'current':bool(report.get('is_current_run')),'run_date':report.get('run_date'),
                        'points':report['weighted_points'],'rules':report_charts.rules_label(report),
                        **timeline(job,manifest,rows,entries,now)})
     return {'models':models,'generated_at':now}

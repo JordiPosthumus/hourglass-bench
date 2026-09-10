@@ -26,7 +26,7 @@ class CalibrationTests(unittest.TestCase):
             for i in range(repeat):
                 self.rows.append({'evaluation_id':name,'run_id':f'{name}-{task["task"]}-{i}',
                                   'run':i+1,'model':name,'model_config_hash':c.digest(cfg),'task':task['task'],
-                                  'task_sha':task['task_sha'],'benchmark_version':version,
+                                  'task_sha':task['task_sha'],'task_bundle_sha':task['task_bundle_sha'],'benchmark_version':version,
                                   'solved':correct,'status':'completed','node':'node','duration_s':2})
         return m
 

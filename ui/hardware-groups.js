@@ -1,0 +1,10 @@
+'use strict';
+async function openHardwareGroups(){
+ let data;try{data=await api('/api/hardware-groups')}catch(e){toast(e.message);return;}
+ let groups=structuredClone(data.document.groups);
+ dialog('Hardware comparison groups',`<p>Give equivalent hardware labels one canonical name. Group multiple physical machines only when you want to treat them as interchangeable. Original machine records remain available.</p><p class="help">Recorded labels: ${data.observed_labels.map(esc).join(' · ')||'None yet'}</p><div id="hardwareGroupRows"></div><button type="button" id="addHardwareGroup" class="button secondary">Add group</button><p id="hardwareGroupError" role="alert"></p>`,[{label:'Cancel',click:()=>$('dialog').close()},{label:'Save groups',primary:true,click:async b=>{read();b.disabled=true;try{await api('/api/hardware-groups',{revision:data.revision,groups});$('dialog').close();await refresh();toast('Hardware display names and comparison groups updated. Original records retained.')}catch(e){$('hardwareGroupError').textContent=e.message;b.disabled=false;}}}]);
+ function read(){groups=groups.map((g,i)=>({...g,label:$('groupLabel'+i).value,aliases:$('groupAliases'+i).value.split('\n').map(x=>x.trim()).filter(Boolean)}));}
+ function render(){ $('hardwareGroupRows').innerHTML=groups.map((g,i)=>`<fieldset class="run-editor-group"><legend>Group ${i+1}</legend><label class="fieldlabel">Canonical name<input id="groupLabel${i}" maxlength="160" value="${esc(g.label)}"></label><label class="fieldlabel">Equivalent recorded labels, one per line<textarea id="groupAliases${i}" rows="3">${esc(g.aliases.join('\n'))}</textarea></label><button type="button" class="textbutton" data-remove-group="${i}">Remove group</button></fieldset>`).join('');$('hardwareGroupRows').querySelectorAll('[data-remove-group]').forEach(b=>b.onclick=()=>{read();groups.splice(Number(b.dataset.removeGroup),1);render();});}
+ $('addHardwareGroup').onclick=()=>{read();groups.push({label:'',aliases:[]});render();};render();
+}
+document.addEventListener('DOMContentLoaded',()=>{document.getElementById('editHardwareGroups').onclick=openHardwareGroups;});

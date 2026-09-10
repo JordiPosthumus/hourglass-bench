@@ -16,6 +16,6 @@ window.EndpointHardware = class {
       const m=models.find(m=>m.name===select.value);const value=m?.hardware??this.data?.endpoints?.find(e=>e.base_url===m?.base_url)?.profile?.label??'';if(this.el('hardwareLabel').value!==value)this.el('hardwareLabel').value=value;
     }catch(e){}
   }
-  summary(){const m=this.getModel();return m?.hardware||this.data?.endpoints?.find(e=>e.base_url===m?.base_url)?.profile?.label||'This computer · set hardware for an SSH tunnel'}
+  summary(){const m=this.getModel();return m?.hardware||this.data?.endpoints?.find(e=>e.base_url===m?.base_url)?.profile?.label||'Hardware not recorded · choose the inference machine'}
   open(){this.openSettings();this.el('hardwareModel').value=this.getModel()?.name;this.fill();this.el('hardwareLabel').focus();this.el('hardwareLabel').scrollIntoView({block:'center'})}
 };

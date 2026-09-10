@@ -39,7 +39,7 @@ class EndpointHardwareTests(unittest.TestCase):
     def test_local_choice_and_unknown_optional_fields(self):
         self.save(memory_gib='',cpu_cores='',gpu_model='');before=eh.load(self.root)
         for k in ['memory_bytes','cpu_cores','gpu']:self.assertNotIn(k,before[self.url])
-        result=self.save(machine='local');self.assertEqual(eh.load(self.root),{});self.assertEqual(json.loads((self.root/result['backup']/'hardware-profiles.json').read_text()),before)
+        result=self.save(machine='local');self.assertIn('machine_id',eh.load(self.root)[self.url]);self.assertEqual(json.loads((self.root/result['backup']/'hardware-profiles.json').read_text()),before)
     def test_corrupt_profiles_not_replaced(self):
         p=self.root/'hardware-profiles.json';p.write_text('not json');self.assertIn('error',eh.snapshot(self.root,self.models))
         with self.assertRaises(ValueError):eh.save(self.root,self.models,{})

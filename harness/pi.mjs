@@ -27,6 +27,7 @@ const loader=new DefaultResourceLoader({cwd,agentDir,settingsManager,noExtension
    p.max_tokens=cfg.max_tokens??1024;
    if(cfg.reasoning!==undefined)p.reasoning=cfg.reasoning;
    Object.assign(p,cfg.extra??{});delete p.temperature;
+   if(cfg.output_budget==='server'){delete p.max_tokens;delete p.max_completion_tokens;}
    const keys=['temperature','top_p','top_k','min_p','repetition_penalty','frequency_penalty','presence_penalty','reasoning','reasoning_effort','max_tokens'];
    emit({requested_settings:{pi_thinking_level:session?.thinkingLevel??null,captured_at:new Date().toISOString(),response_mode:cfg.response_mode ?? 'stream',values:Object.fromEntries(keys.filter(k=>p[k]!==undefined).map(k=>[k,p[k]])),omitted:keys.filter(k=>p[k]===undefined)}});return p;
  });
@@ -41,7 +42,7 @@ const loader=new DefaultResourceLoader({cwd,agentDir,settingsManager,noExtension
 try{
  await loader.reload();
  const runtime=await ModelRuntime.create({authPath:path.join(agentDir,'auth.json'),modelsPath:path.join(agentDir,'models.json')});
- await runtime.setRuntimeApiKey('benchmark','local');
+ await runtime.setRuntimeApiKey('benchmark',cfg.api_key ?? 'local');
  const model=runtime.getModel('benchmark',cfg.model);if(!model)throw new Error('Frozen Pi could not resolve configured model');
  const finalTool={name:input.finalTool,label:input.finalTool,description:input.answerDescription,
  parameters:input.answerSchema,execute:async(_id,args)=>{answer=args;return {content:[{type:'text',text:'Answer recorded. The benchmark question is complete.'}],details:{}};}};

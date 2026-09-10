@@ -32,7 +32,8 @@ def chime():
 def watch_job(job, condition, stop):
     with condition:
         while job.get('state') == 'running':
-            wait = remaining(job)
+            deadline = job.get('_hour_deadline_monotonic')
+            wait = max(0, deadline-time.monotonic()) if deadline is not None else remaining(job)
             if wait <= 0:
                 stop({'job':job['id'], 'reason':'hour_limit'})
                 return
@@ -55,7 +56,8 @@ def watch_existing(base, jid):
                     chime()
                 print(f"Run ended: {job['state']}; hourly stop requested={requested}.", flush=True)
                 return
-            wait = remaining(job)
+            deadline = job.get('_hour_deadline_monotonic')
+            wait = max(0, deadline-time.monotonic()) if deadline is not None else remaining(job)
             if job['state'] == 'running' and wait <= 0 and not requested:
                 req = urllib.request.Request(base+'/api/stop', data=json.dumps({'job':jid,'reason':'hour_limit'}).encode(), headers={'Content-Type':'application/json'})
                 with urllib.request.urlopen(req, timeout=10) as response:

@@ -1,4 +1,5 @@
 """Append-only, user-reported run details and persistent reusable choices."""
+import run_naming
 import json
 import math
 import threading
@@ -27,9 +28,11 @@ def clean(values):
         if key in NUMBERS:
             low,high=NUMBERS[key]
             if type(value) not in (int,float) or not math.isfinite(value) or low is not None and value<low or high is not None and value>high or key in INTEGERS and int(value)!=value:raise ValueError('Invalid '+FIELDS[key]+'.')
+        elif key=='run_name' and (not isinstance(value,str) or len(value)>500 or any(ord(c)<32 for c in value)):raise ValueError('Run names must be one line of at most 500 characters.')
         elif not isinstance(value,str) or len(value)>2000:raise ValueError('Text fields must contain at most 2000 characters.')
         elif not value.strip():continue
         else:value=value.strip()
+        if key in run_naming.IDENTITY_FIELDS:value=run_naming.normalize(key,value)
         output[key]=value
     return output
 
@@ -69,16 +72,37 @@ def save(root,manifest,body):
 PUBLIC_MAP={'model_name':'model_family','model_revision':'model_revision','run_name':'configuration','quantization':'quantization'}
 PUBLIC_PARAMETERS=('temperature','top_p','top_k','min_p','repetition_penalty','seed','context_limit','output_limit','reasoning','concurrency','cache')
 
+def display_values(root,manifest):
+    current=snapshot(root,manifest['id'])
+    values=dict((current or {}).get('values',{}))
+    key=setup_key(manifest)
+    shared=[r for r in read_lines(Path(root)/'run-detail-setups.jsonl') if key and r.get('key')==key]
+    if shared:
+        latest=max(shared,key=lambda r:r['recorded_at'])
+        for field in (*run_naming.IDENTITY_FIELDS,'run_name'):
+            values.pop(field,None)
+            if field in latest['values']:values[field]=latest['values'][field]
+    return values
+
+def display(root,manifest):
+    import hardware_records
+    import hardware_groups
+    values=display_values(root,manifest)
+    if values.get('hardware'):values['hardware']=hardware_groups.canonical_label(root,values['hardware'])
+    return run_naming.describe(manifest,values,hardware_records.recorded(root,manifest))
+
 def public_labels(root,jid):
     """Only labeled report fields; never notes, endpoint URLs or configuration secrets."""
     record=snapshot(root,jid)
-    if not record:return {}
-    values=record['values']
+    path=Path(root)/'evaluations'/(jid+'.json')
+    values=display_values(root,json.loads(path.read_text())) if path.exists() else (record or {}).get('values',{})
     labels={target:str(values[key])[:500] for key,target in PUBLIC_MAP.items() if key in values}
     engine=' · '.join(str(values[k]) for k in ('server_name','server_version') if values.get(k))
     if engine:labels['inference_engine']=engine[:500]
     parameters='; '.join(FIELDS[k]+': '+str(values[k]) for k in PUBLIC_PARAMETERS if k in values)
     if parameters:labels['parameters']=parameters[:500]
+    path=Path(root)/'evaluations'/(jid+'.json')
+    if path.exists():labels['configuration']=display(root,json.loads(path.read_text()))['name'][:500]
     return labels
 
 def copy_setup(root,source,manifest):
@@ -147,3 +171,23 @@ def reuse_setup(root,manifest):
         if prior is None:return None
         return save(root,manifest,{'values':prior['values'],'applies_from':'run_start',
                     'reason':'Reused saved editor setup from run '+prior['source_run']+' for the same configuration and hardware. Confirm reported details still apply.'})
+
+
+def initial_identity(root,config):
+    import calibration
+    import hardware_records
+    manifest={'id':'preview','model':config['name'],'model_id':config['model'],
+              'config_hash':calibration.digest(config),'model_config_snapshot':config,
+              'hardware':hardware_records.capture(root,config)}
+    prior=reusable_setup(root,manifest)
+    values=dict((prior or {}).get('values',{}))
+    identity=run_naming.describe(manifest,values)
+    return {'identity':identity,'values':{**identity['fields'],**{k:v for k,v in values.items() if k in (*run_naming.IDENTITY_FIELDS,'run_name')}}}
+
+
+def required_identity(values):
+    values=clean(values)
+    if set(values)-set((*run_naming.IDENTITY_FIELDS,'run_name')):raise ValueError('Only naming fields are accepted here.')
+    missing=[FIELDS[k] for k in ('hardware','server_name','model_name','quantization') if not values.get(k) or values[k].casefold()=='xxx']
+    if missing:raise ValueError('Complete the configuration name before starting: '+', '.join(missing)+'.')
+    return values

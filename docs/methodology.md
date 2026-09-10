@@ -40,15 +40,15 @@ These blocks are a way to describe the cadence, not separate timed rounds. Chall
 
 Each reference challenge has distinct pilot and held-out input variants, twelve answer choices, and two reference solving methods. Pilot model work is inspected for ambiguity, shortcuts and mistakes in the question. The scored input is held out from those pilots. This provides evidence of solvability; it does not establish uniform difficulty or freedom from every possible shortcut.
 
-**Implementation scope:** the public harness currently implements the regular difficulty waves. The challenge insertion and two-point challenge weight described here belong to the private version 2.2 reference installation and have not yet been ported to the public runtime. The public repository ships only the optional hello-world setup demonstration. The reference questions, inputs, answers and pilot traces remain private.
+**Implementation scope:** the public harness supports regular difficulty waves, challenge insertion after every four regular questions, and two-point challenge weights for user-authored challenge tasks. The public repository ships only the optional hello-world setup demonstration. The reference questions, inputs, answers and pilot traces remain private.
 
 ## One clock across all waves
 
 The full ordered run shares 3,600 active seconds. Starting a question or reaching a challenge does not reset the clock. Thinking, tool calls, initialization, grading, errors and retries consume the budget; recorded pauses between resumes do not.
 
-There is no separate short per-question limit or agent-turn cap. A model may spend substantial time solving or checking a difficult question, leaving less time for later questions. That cost is part of the measurement. Configured model context and output limits still apply.
+Each question has 900 active seconds total, including tools, retries and repeats; expiry advances to the next question. There is no agent-turn cap. A model may spend substantial time solving or checking a difficult question, leaving less time for later questions. That cost is part of the measurement. Configured model context and output limits still apply.
 
-Each distinct correct answer completed by the inclusive deadline earns its fixed authored weight, normally between one and two points; reference challenges earn two. Raw correct counts remain visible. Wrong, unfinished and unreached questions earn no points. Execution errors are recorded separately from incorrect answers. An early interrupted run is partial and is not extrapolated to a full hour. The existing stop after 20 consecutive incorrect answers can also end a run early.
+Each distinct correct answer completed by the inclusive deadline earns its fixed authored weight, normally between one and two points; reference challenges earn two. Raw correct counts remain visible. Under net-hour-v2, an incorrect final answer costs one point; unfinished and unreached questions earn zero. Explicit abstention is not offered. Execution errors are recorded separately from incorrect answers. An early interrupted run is partial and is not extrapolated to a full hour. The existing stop after 20 consecutive incorrect answers can also end a run early.
 
 ## Reading and comparing results
 
