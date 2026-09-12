@@ -4,6 +4,8 @@ Every new benchmark uses the complete installed question bank in the order defin
 
 ## Runs and Archived runs
 
+**New run**, beside the saved-run picker, opens a right-side setup drawer. Closing it with Close, Escape or the backdrop preserves the current draft while the page remains open. The model and connection check stay visible; endpoint, hardware, inference details and benchmark rules are expandable. Review opens a confirmation dialog, and a successful start closes setup and focuses the queued run. With no saved runs, setup appears inline instead. The fixed bank is summarized by its question count, without sample question IDs.
+
 Runs opens the current run and its recorded comparisons. The chart tabs offer points over time, score ranking, accuracy and efficiency, live throughput, and speed comparison. Graph labels use the run name without repeating its hardware or adding scoring-policy and deadline strings. Detailed execution metadata remains in the run record and report data.
 
 Archive moves an idle run out of ordinary results and comparisons. Archived runs provides the restore action. Archiving does not delete answers, settings, logs or artifacts.

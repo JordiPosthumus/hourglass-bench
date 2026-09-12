@@ -1,0 +1,13 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const source=fs.readFileSync('ui/app.js','utf8'),nodes={};
+const el=id=>nodes[id]??=( {id,hidden:false,open:false,value:'draft model',classList:{add(){}},append(child){child.parentElement=this},showModal(){this.open=true},close(){this.open=false},focus(){this.focused=true},scrollIntoView(){},querySelector(){return el('heading')},addEventListener(){}} );
+const context={$:el,S:{jobs:{running:[],pending:[],done:[]}},workspaceView:'visible',allJobs:()=>[],setPage(){},setWorkspaceView(v){context.workspaceView=v}};
+vm.createContext(context);
+vm.runInContext(source.slice(source.indexOf('function syncRunBuilder()'),source.indexOf("$('starterBtn').onclick=")),context);
+context.syncRunBuilder();assert.equal(el('runBuilder').parentElement,el('runBuilderHome'));assert.equal(el('runBuilderHome').hidden,false);assert.equal(el('closeRunBuilder').hidden,true);
+context.S.jobs.done.push({id:'saved'});context.syncRunBuilder();assert.equal(el('runBuilder').parentElement,el('runSetupDrawer'));assert.equal(el('runBuilderHome').hidden,true);assert.equal(el('emptyNewRun').hidden,false);
+context.showRunBuilder();assert(el('runSetupDrawer').open);assert(el('model').focused);
+el('model').value='kept draft';context.closeRunBuilder();assert(!el('runSetupDrawer').open);context.showRunBuilder();context.syncRunBuilder();assert(el('runSetupDrawer').open);assert.equal(el('model').value,'kept draft');
+context.closeRunBuilder();context.workspaceView='questions';context.syncRunBuilder();assert(el('runBuilderHome').hidden);assert(el('emptyNewRun').hidden);
+assert(source.includes("$('newRun').onclick=showRunBuilder"));
+console.log('Run drawer: inline empty state, saved/archived history, open/close, focus, refresh and draft retention passed.');

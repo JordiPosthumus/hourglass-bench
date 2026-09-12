@@ -12,7 +12,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('nod
     endpointHardware:{dirty:false,saving:false,summary:()=> 'Recorded machine'},esc:String,
     api:async(path,body)=>{if(path==='/api/run-identity')return naming;assert.equal(path,'/api/run');submitted=body;if(fail)throw Error('Model settings changed after review.');return {job:'new-run'}},
     dialog:(title,body,buttons)=>{html=body;actions=buttons},
-    toast:()=>{},selectLog:()=>{},refresh:async()=>{refreshes++}};
+    closeRunBuilder:()=>{element('runSetupDrawer').close()},toast:()=>{},selectLog:()=>{},refresh:async()=>{refreshes++}};
   vm.createContext(context);vm.runInContext(source,context);await element('reviewRun').onclick();
   assert(!html.includes('<input'));assert(html.includes('Recorded engine · Recorded build'));assert(html.includes('id="startRunError"'));assert(html.includes('role="alert"'));
   const button={textContent:'Start run',disabled:false};await actions[1].click(button);
@@ -25,5 +25,6 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('nod
   assert.equal(submitted.identity.quantization,undefined);assert.equal(submitted.identity.server_name,'Recorded engine');
   assert.equal(submitted.models_revision,'model-revision');assert.equal(submitted.task_bundles.example,'fixture-hash');
   assert.equal(element('startRunError').hidden,true);assert.equal(element('dialog').closed,true);assert.equal(refreshes,1);
+  assert.equal(element('runSetupDrawer').closed,true);
   console.log('Start run: recorded setup is shown without duplicate inputs; errors stay visible; configuration and revision checks survive retry.');
 })().catch(error=>{console.error(error);process.exit(1)});

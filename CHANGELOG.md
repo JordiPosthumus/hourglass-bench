@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Move new-run setup into an on-demand, keyboard-accessible right-side drawer, preserving drafts on close and showing setup inline before the first saved run.
+- Collapse technical setup details and benchmark rules, simplify the fixed-bank summary, and remove redundant score breakdown cards beneath the chart.
+
 ## 4.1.0 — 2026-09-12
 
 ### A focused workspace
