@@ -16,12 +16,12 @@ import live_tps
 FIXTURE='''import json,os,sys,time
 from pathlib import Path
 root=Path.cwd(); tid=sys.argv[2]
-indices=list(map(int,sys.argv[sys.argv.index('--repeat-indices')+1].split(',')))
+indices=[1]
 for repeat in indices:
  state={'task':tid,'run':repeat,'run_id':tid+str(repeat),'started':time.time()}
  Path(os.environ['HOURGLASS_ATTEMPT_CHECKPOINT']).write_text(json.dumps(state))
  if tid=='a':
-  time.sleep(.08 if repeat==1 else 30)
+  time.sleep(30)
  elif tid=='fail':
   time.sleep(.08);sys.exit(1)
  elif tid=='missing':
@@ -34,7 +34,7 @@ class QuestionDeadlineTests(unittest.TestCase):
  def exercise(self, tasks=('a','b'), used=None, hour_used=0):
   with tempfile.TemporaryDirectory() as directory:
    root=Path(directory);(root/'hourglass.py').write_text(FIXTURE);(root/'results').mkdir()
-   expected=[{'task':t,'repeat':2 if t=='a' else 1,'task_sha':'fixture'} for t in tasks]
+   expected=[{'task':t,'repeat':1,'task_sha':'fixture'} for t in tasks]
    manifest={'id':'fixture','expected':expected,'model_config_snapshot':{},'config_hash':web.calibration.digest({}),'scoring_policy':'net-hour-v2'}
    condition=threading.Condition();done=deque()
    job={'id':'fixture','tasks':list(tasks),'model':'fixture','state':'pending','elapsed_s':hour_used,'question_timeout_s':.25,'question_elapsed_s':used or {}}
@@ -57,11 +57,11 @@ class QuestionDeadlineTests(unittest.TestCase):
     thread.join(1)
     for p in reversed(patches):p.stop()
 
- def test_shared_repeats_timeout_then_auto_advance(self):
+ def test_single_attempt_timeout_then_auto_advance(self):
   job,rows,elapsed=self.exercise()
   self.assertEqual(job['state'],'completed',job)
   self.assertEqual(self.sound_calls,[mock.call()])
-  self.assertEqual([(r['task'],r['run'],r['status']) for r in rows],[('a',1,'completed'),('a',2,'timeout'),('b',1,'completed')])
+  self.assertEqual([(r['task'],r['run'],r['status']) for r in rows],[('a',1,'timeout'),('b',1,'completed')])
   self.assertLess(elapsed,1.5);self.assertGreaterEqual(job['question_elapsed_s']['a'],.24)
   self.assertFalse(run_tracking.missing_repeats({'expected':[{'task':'a','repeat':3}]},rows,'a'))
 

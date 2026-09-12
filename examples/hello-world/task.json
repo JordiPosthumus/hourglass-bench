@@ -3,7 +3,6 @@
   "kind": "fix",
   "title": "Hello world: repair a tiny calculator (demo)",
   "tier": 0,
-  "repeat": 1,
   "files": {
     "calculator.py": "\"\"\"Tiny calculator used by the CLI demo.\"\"\"\ndef add(a, b):\n    return a + b\n\ndef sub(a, b):\n    return a - b\n\ndef mul(a, b):\n    return a * b\n",
     "README.md": "# Calculator\n\nUsage examples (all must hold):\n\n```python\nfrom calculator import add, sub, mul\nassert add(2, 3) == 5\nassert add(-2, 5) == 3\nassert add(40, 2) == 42\nassert add(0, 0) == 0\nassert sub(5, 2) == 3\nassert mul(3, 4) == 12\n```\n"

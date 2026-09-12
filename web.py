@@ -72,7 +72,7 @@ def task_catalog():
                       'task_bundle_sha':task_identity.identity(p.parent),'family':t.get('family') or section,'tier':t.get('tier',1),
                       'summary':question_context.summary(summaries,{'task':p.parent.name,'task_sha':(hourglass.sha(p) or '')[:16]}),
                       'order_tier':run_tracking.difficulty_tier(t),'tier_estimated':t.get('tier') is None and run_tracking.difficulty_tier(t) is not None,
-                      'discovery_domain':t.get('discovery_domain'),'level':t.get('level'),'challenge_rank':t.get('challenge_rank'),'title':t.get('title') or p.parent.name,'repeat':t.get('repeat',3),
+                      'discovery_domain':t.get('discovery_domain'),'level':t.get('level'),'challenge_rank':t.get('challenge_rank'),'title':t.get('title') or p.parent.name,
                       'mode':t.get('mode'),'options':len(t.get('options') or t.get('choices') or []),
                       'vision':hourglass.requires_vision(t),'issues':issues,'task_type':t.get('provenance',{}).get('task_type'),
                       'timeout_s':None,'max_turns':t.get('max_turns',30)})
@@ -165,7 +165,8 @@ def resume_plan(job, manifest, rows):
     missing={t['task']:run_tracking.missing_repeats(manifest,raw,t['task']) for t in manifest['expected']}
     missing={tid:indices for tid,indices in missing.items() if indices}
     reason=None
-    if job.get('state') not in ('error','cancelled','stopped'):reason='Only interrupted or cancelled runs can be resumed.'
+    if any(t.get('repeat',1)!=1 for t in manifest['expected']):reason='Start a new run; each question now runs once.'
+    elif job.get('state') not in ('error','cancelled','stopped'):reason='Only interrupted or cancelled runs can be resumed.'
     elif job.get('results_reset'):reason='Selected results were reset. Prepare a targeted rerun with a fresh clock.'
     elif (job.get('elapsed_s') or 0)>=hour_score.WINDOW_S:reason='The one-hour scoring window is complete. Start a new run for another attempt.'
     elif job.get('hour_timing_unknown') or manifest.get('hour_timing_unknown'):reason='Active time was interrupted without a reliable end timestamp. Start a new run using this setup.'
@@ -391,9 +392,10 @@ def worker():
         threading.Thread(target=live_tps.collect,args=(ROOT,job,condition),daemon=True).start()
         try:
             manifest=saved_manifest(job['id'])
+            if any(t.get('repeat',1)!=1 for t in manifest['expected']):
+                raise ValueError('Start a new run; each question now runs once.')
             current_config=next((m for m in model_document().get('models',[]) if m.get('name')==manifest.get('model')),None)
             config_path=calibration.frozen_config_path(ROOT,manifest,current_config)
-            expected={t['task']:t['repeat'] for t in manifest['expected']}
             with (LOGS/f"job-{job['id']}.log").open('a') as log:
                 log.write(f"\n{'RESUME' if job.get('resume_count') else 'RUN'} · Hourglass {hourglass.BENCHMARK_VERSION}\n");log.flush()
                 wrong_streak=0;job['completed_tasks']=0
@@ -423,8 +425,8 @@ def worker():
                         if qlimit:
                             env.update(HOURGLASS_QUESTION_TIMEOUT_S=str(qlimit),HOURGLASS_QUESTION_STARTED_AT=str(qstart),HOURGLASS_QUESTION_DEADLINE_AT=str(job['question_deadline_at']),HOURGLASS_QUESTION_DEADLINE_MONOTONIC=str(qdeadline))
                         cmd=[sys.executable,'-u',str(ROOT/'hourglass.py'),'run',tid,'--model',job['model'],
-                             '--config',str(config_path),'--repeat',str(expected[tid]),'--repeat-indices',','.join(map(str,missing))]
-                        log.write(f"\n=== {tid} · repeats {','.join(map(str,missing))} ===\n");log.flush()
+                             '--config',str(config_path)]
+                        log.write(f"\n=== {tid} ===\n");log.flush()
                         with condition:
                             if job.get('stop_requested'):
                                 job.update(state='stopped',error=None);break
@@ -540,7 +542,9 @@ def enqueue(body):
         return _enqueue_reviewed(body,document)
 
 def _enqueue_reviewed(body,document):
-    model=body.get('model'); tids=body.get('tasks'); repeat=body.get('repeat')
+    model=body.get('model'); tids=body.get('tasks')
+    if body.get('repeat') is not None and (type(body['repeat']) is not int or body['repeat']!=1):
+        raise ValueError('Each question runs once')
     if model not in [m.get('name') for m in document.get('models',[])]:raise ValueError('Choose a saved model.')
     if not isinstance(tids,list) or not tids or any(not isinstance(t,str) for t in tids):raise ValueError('Choose at least one test.')
     catalog={t['id']:t for t in task_catalog()}
@@ -550,10 +554,9 @@ def _enqueue_reviewed(body,document):
         raise ValueError('Question bundles changed after review. Refresh and review again.')
     bad=[t for t in tids if catalog[t]['issues']]
     if bad:raise ValueError('These tests need repair before running: '+', '.join(bad))
-    if repeat is not None and (type(repeat) is not int or repeat<1):raise ValueError('Repeats must be a positive whole number, or use task defaults.')
     tids=ordered_tasks(list(catalog.values()),tids)
     job={'scoring_policy':scoring_policy.NET,'id':uuid.uuid4().hex,'label':f'{model} · {len(tids)} tests','model':model,'tasks':tids,
-         'repeat':repeat,'question_timeout_s':question_deadline.LIMIT_S,'question_timeout_policy':question_deadline.POLICY,'stop_after_wrong':run_tracking.STOP_AFTER_WRONG,'state':'pending','created':time.time(),'completed_tasks':0,'total_tasks':len(tids)}
+         'repeat':1,'question_timeout_s':question_deadline.LIMIT_S,'question_timeout_policy':question_deadline.POLICY,'stop_after_wrong':run_tracking.STOP_AFTER_WRONG,'state':'pending','created':time.time(),'completed_tasks':0,'total_tasks':len(tids)}
     config=next(m for m in document['models'] if m['name']==model)
     inference_profiles.request_settings(config)
     if body.get('task_bundles') is not None:job['reviewed_task_bundles']=body['task_bundles']

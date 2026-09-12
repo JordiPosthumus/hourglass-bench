@@ -131,6 +131,8 @@ def create(root, source, rows, body, version):
 
 def _create(root, source, rows, body, version):
     import calibration,diagnostics
+    if any(t.get('repeat',1)!=1 for t in source['expected']):
+        raise ValueError('Start a new run; each question now runs once.')
     p=plan(root,source,rows,body.get('tasks'))
     if body.get('revision')!=p['revision']:raise ValueError('Original results changed. Review the repair again.')
     if not p['tasks'] or p['remaining_s']<=0:raise ValueError('Select at least one question with recorded time to replace.')

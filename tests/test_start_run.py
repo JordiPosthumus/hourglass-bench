@@ -14,6 +14,28 @@ import web
 
 
 class StartRunTests(unittest.TestCase):
+    def test_single_attempt_is_fixed_for_all_api_inputs(self):
+        for supplied in ({}, {'repeat':None}, {'repeat':1}, {'repeat':3}, {'repeat':0}, {'repeat':True}, {'repeat':'1'}):
+            with self.subTest(supplied=supplied), tempfile.TemporaryDirectory() as directory:
+                root=Path(directory);task=root/'tasks/example/task.json';task.parent.mkdir(parents=True)
+                task.write_text(json.dumps({'id':'example','kind':'mcq','mode':'option_id','repeat':3,
+                    'prompt':'Fixture.', 'options':[{'id':'001','text':'One'},{'id':'002','text':'Two'}],'answer':'001'}))
+                (root/'models.json').write_text(json.dumps({'models':[{'name':'fixture','model':'fixture','base_url':'http://example.invalid/v1'}]}))
+                body=json.dumps({'model':'fixture','tasks':['example'],**supplied}).encode()
+                responses=[];handler=object.__new__(web.H);handler.path='/api/run'
+                handler.headers={'Content-Type':'application/json','Content-Length':str(len(body))};handler.rfile=io.BytesIO(body)
+                handler._json=lambda value,status=200:responses.append((status,value))
+                with patch.object(web,'ROOT',root),patch.object(web,'TASKS',root/'tasks'),patch.object(web,'queue',deque()),patch.object(web,'shutting_down',False):
+                    handler.do_POST()
+                    accepted=not supplied or supplied['repeat'] is None or type(supplied['repeat']) is int and supplied['repeat']==1
+                    self.assertEqual(responses[0][0],200 if accepted else 400,responses)
+                    self.assertEqual(len(web.queue),int(accepted))
+                    if accepted:
+                        manifest=json.loads((root/'evaluations'/(web.queue[0]['id']+'.json')).read_text())
+                        self.assertEqual([t['repeat'] for t in manifest['expected']],[1])
+                    else:
+                        self.assertFalse((root/'evaluations').exists())
+
     def test_recorded_profile_is_used_without_guessing_alias_quantization(self):
         config={'model':'arbitrary-fp16-alias','inference_profile':{'backend':'mtplx','backend_version':'2.11.2'}}
         original=copy.deepcopy(config)

@@ -14,7 +14,15 @@ real_popen=subprocess.Popen
 child="import signal,time,json,sys\ndef stop(*_):\n print('y'*1_000_000,flush=True)\n sys.stderr.write('x'*1_000_000);sys.stderr.flush()\n print(json.dumps({'shutdown':'drained'}),flush=True)\n sys.exit(0)\nsignal.signal(signal.SIGTERM,stop)\nprint(json.dumps({'event':{'type':'turn_start'}}),flush=True)\ntime.sleep(30)\n"
 def provider(*args,**kwargs):return real_popen([sys.executable,'-u','-c',child],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
 h.subprocess.Popen=provider
-threading.Thread(target=lambda:(time.sleep(.3),os.kill(os.getpid(),signal.SIGTERM)),daemon=True).start()
+ready=threading.Event()
+def observed_print(*args,**kwargs):
+ print(*args,**kwargs)
+ if args and args[0]=='MODEL Pi turn: waiting for response':ready.set()
+h.print=observed_print
+def interrupt_read():
+ assert ready.wait(5),'harness never began reading the fixture response'
+ time.sleep(.1);os.kill(os.getpid(),signal.SIGTERM)
+threading.Thread(target=interrupt_read,daemon=True).start()
 try:
  h.run({'id':'fixture','kind':'mcq','prompt':'fixture','options':[{'id':'001','text':'fixture'}]}, {'base_url':'http://unused.invalid/v1','model':'fixture','max_tokens':1024},Path(sys.argv[1]),False)
 except SystemExit as e:

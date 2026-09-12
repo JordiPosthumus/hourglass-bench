@@ -52,10 +52,17 @@ class LegacyHarnessAndScoringTests(unittest.TestCase):
         with patch.dict(os.environ,{'HOURGLASS_SKIP_REASON':'five_wrong_in_row'}),patch.object(hourglass,'build',side_effect=AssertionError('must not build')):
             self.run_mock([AssertionError('must not call model')])
         r=hourglass._rows()[0];self.assertEqual(r['score_reason'],'five_wrong_in_row');self.assertFalse(r['solved']);self.assertEqual(r['duration_s'],0)
-    def test_runner_retries_only_requested_repeat_indices(self):
+    def test_runner_rejects_multiple_attempts(self):
         self.task();args=self.args();args.repeat=3;args.repeat_indices='2'
+        with patch.object(hourglass,'chat') as call,self.assertRaisesRegex(ValueError,'runs once'):hourglass.cmd_run(args)
+        call.assert_not_called()
+
+    def test_task_metadata_cannot_enable_multiple_attempts(self):
+        task=self.task();task['repeat']=3
+        (hourglass.TASKS/task['id']/'task.json').write_text(json.dumps(task))
+        args=self.args();del args.repeat
         with patch.object(hourglass,'chat',return_value=self.answer()) as call,patch.object(hourglass,'get_provenance',return_value={}),contextlib.redirect_stdout(io.StringIO()):hourglass.cmd_run(args)
-        self.assertEqual(call.call_count,1);self.assertEqual(hourglass._rows()[0]['run'],2)
+        self.assertEqual(call.call_count,1);self.assertEqual(len(hourglass._rows()),1)
     def test_chat_has_no_timeout_and_preserves_generation_settings(self):
         response=io.BytesIO(json.dumps(self.answer()).encode())
         with patch.object(hourglass.urllib.request,'urlopen',return_value=response) as call:

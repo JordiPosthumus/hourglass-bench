@@ -51,14 +51,14 @@ Hourglass 3.0.0 uses the pinned Pi SDK’s native model declarations, thinking s
 
 The headline **Hourglass Score** measures the area under net points over active time, scaled so that steady perfect completion of the frozen bank over one hour scores 100. Earlier correct work earns more; scores can exceed 100. Unfinished runs show a clearly labelled forecast after the first answered question. Rankings and exports use measured scores. See [the score definition](docs/results-history.md#hourglass-score).
 
-1. The UI freezes the selected questions, order, repeats, model configuration and evaluation policies.
+1. The UI freezes the selected questions, order, model configuration and evaluation policies.
 2. The bundled Pi agent works through the questions using files, bash and tools in isolated workspaces.
 3. Hourglass grades submissions and records timing, usage, evidence and configuration provenance.
 4. The controller stops the benchmark process group at 3,600 active seconds. Pauses between resumes do not count.
 
-New runs use `net-hour-v2`: a correct question earns its frozen 1–2 points; a submitted wrong answer costs 1 point; timeout, unsupported vision or no final submission earns zero. Distinct questions count once. Text and vision subtotals, gross points and wrong-answer counts remain visible. Use **one repeat** for the standard evaluation. See [scoring](docs/scoring.md).
+New runs use `net-hour-v2`: a correct question earns its frozen 1–2 points; a submitted wrong answer costs 1 point; timeout, unsupported vision or no final submission earns zero. Distinct questions count once. Text and vision subtotals, gross points and wrong-answer counts remain visible. Each question runs once per evaluation; there is no repeat setting. See [scoring](docs/scoring.md).
 
-Questions rotate through difficulty bands and subjects; optional challenge and repository-discovery groups have a documented cadence. The default total limit per question is 15 minutes within the shared hour. New runs randomize option IDs and positions using a private run seed; repeats derive their layout from that seed, and resumes retain it. Thus separate runs can have different option layouts even with identical bank files. See [methodology](docs/methodology.md), [prompt contract](docs/prompt-contract.md) and [run identity](docs/run-identity.md) for comparison limits. Uncalibrated questions carry no empirical difficulty claim.
+Questions rotate through difficulty bands and subjects; optional challenge and repository-discovery groups have a documented cadence. The default total limit per question is 15 minutes within the shared hour. New runs randomize option IDs and positions using a private run seed; resumes retain that seed. Thus separate runs can have different option layouts even with identical bank files. See [methodology](docs/methodology.md), [prompt contract](docs/prompt-contract.md) and [run identity](docs/run-identity.md) for comparison limits. Uncalibrated questions carry no empirical difficulty claim.
 
 **Start timed evaluations in the UI.** The `hourglass.py run` command is for individual-task diagnostics and does not enforce a whole-evaluation hour by itself. `./stop-hourglass.sh` saves and stops this checkout's work; model servers remain running. Resume uses the saved run and clock when reliable timing evidence exists.
 

@@ -22,6 +22,10 @@ class CalibrationTests(unittest.TestCase):
                'created':100, 'started':101, 'state':'completed'}
         cfg = {'model':name,'name':name}
         m = c.evaluation_manifest(self.root,job,version,cfg)
+        if repeat!=1:
+            for t in m['expected']:t['repeat']=repeat
+            m['scope']=c.digest(m['expected'])
+            c.write(self.root/'evaluations'/(name+'.json'),m)
         for task, correct in zip(m['expected'],answers):
             for i in range(repeat):
                 self.rows.append({'evaluation_id':name,'run_id':f'{name}-{task["task"]}-{i}',

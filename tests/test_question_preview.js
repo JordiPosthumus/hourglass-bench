@@ -17,7 +17,8 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('nod
  result={...task,options:[{id:'001',text:'SECOND REPEAT'}],presentation:{...task.presentation,repeat:2}};
  await context.renderCurrentQuestion();
  assert.match(element('currentQuestionOptions').innerHTML,/SECOND REPEAT/);
- assert.match(element('currentQuestionStatus').textContent,/Repeat 2/);
+ assert.doesNotMatch(element('currentQuestionStatus').textContent,/Repeat/);
+ assert.match(element('currentQuestionStatus').textContent,/Model’s actual question and options/);
  // An old controller's unqualified bank view must never be shown as exact.
  result={...task};delete result.presentation;job.repeat=2;
  await context.renderCurrentQuestion();

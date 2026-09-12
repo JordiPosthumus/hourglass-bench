@@ -16,7 +16,7 @@ Hourglass 3.0.0 uses native Pi declarations for new profiles; historical profile
 4. Change only what was requested. Never carry reduced diagnostic settings into production without explicit approval. Changes reducing capacity, cache reuse, intelligence, performance or retention require an explained tradeoff and authorization.
 5. Verify live effective settings and exercise the capability being claimed. Prove cache reuse with a real cold-to-warm hit. A process starting or JSON parsing does not prove preservation.
 6. Record the inference hardware. Start a new evaluation after changing model settings. Resume intentionally rejects changed model-config hashes and question content.
-7. Use the same bank, order, repeat policy, scoring version and relevant execution settings for comparisons. Preserve original results when runs are interrupted.
+7. Use the same bank, order, scoring version and relevant execution settings for comparisons. Preserve original results when runs are interrupted.
 
 The normal launcher is `./start-hourglass.sh`. `HOURGLASS_PORT` chooses a loopback UI port; reports use the same listener under `/scores/`. Identify the exact process and checkout before restarting anything. Do not kill unrelated services by port or process name.
 
@@ -171,3 +171,5 @@ Passive telemetry adds MTPLX, oMLX, vLLM, SGLang, llama.cpp and explicitly selec
 A run error or consecutive-wrong-answer stop plays the bundled 3.23-second “booo booo womp womp womp” cue once. Individual wrong answers and question timeouts do not trigger it; manual stop/cancellation is silent. Normal completion and the one-hour boundary keep the existing Glass chime. Audio plays asynchronously on the controller’s Mac and cannot block result persistence. See [sound source and generation](../sounds/README.md).
 
 An already-running older controller can use `python3 hour_deadline.py --failures-only --base-url http://127.0.0.1:4534` to add failure audio without a restart. This temporary observer reads state only, ignores existing history, distinguishes resumed attempts and allows only one observer per checkout/base URL. It exits when the restarted controller advertises built-in failure audio.
+
+New evaluations execute each question once. Keep this invariant in the UI, API, runner and generators. Preserve historical manifests and results; cleanup requires separate owner authorization.

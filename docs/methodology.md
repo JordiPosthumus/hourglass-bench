@@ -56,7 +56,7 @@ The public repository includes the ordering and subtotal support, not these ques
 
 The full ordered run shares 3,600 active seconds. Starting a question or reaching a challenge does not reset the clock. Thinking, tool calls, initialization, grading, errors and retries consume the budget; recorded pauses between resumes do not.
 
-Each question has 900 active seconds total, including tools, retries and repeats; expiry advances to the next question. There is no agent-turn cap. A model may spend substantial time solving or checking a difficult question, leaving less time for later questions. That cost is part of the measurement. Configured model context and output limits still apply.
+Each question has 900 active seconds total, including tools and retries; expiry advances to the next question. There is no agent-turn cap. A model may spend substantial time solving or checking a difficult question, leaving less time for later questions. That cost is part of the measurement. Configured model context and output limits still apply.
 
 Each distinct correct answer completed by the inclusive deadline earns its fixed authored weight, normally between one and two points; reference challenges earn two. Raw correct counts remain visible. Under net-hour-v2, an incorrect final answer costs one point; unfinished and unreached questions earn zero. Explicit abstention is not offered. Execution errors are recorded separately from incorrect answers. An early interrupted run is partial and is not extrapolated to a full hour. The existing stop after 20 consecutive incorrect answers can also end a run early.
 

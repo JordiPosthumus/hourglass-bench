@@ -20,10 +20,15 @@ class ResumeTests(unittest.TestCase):
         self.rows=[]
 
     def interrupted(self,repeat=1,n=2):
-        job=web.enqueue({'model':'model','tasks':[f'T{i:02d}' for i in range(n)],'repeat':repeat})
+        job=web.enqueue({'model':'model','tasks':[f'T{i:02d}' for i in range(n)]})
         with web.condition:web.queue.remove(job)
         job.update(state='error',started=100,ended=120,error='fixture error');web.done.append(job);c.update_evaluation(self.root,job)
-        self.job=job;self.m=web.saved_manifest(job['id']);return job
+        self.job=job;self.m=web.saved_manifest(job['id'])
+        if repeat!=1:
+            job['repeat']=repeat;self.m['repeat']=repeat
+            for t in self.m['expected']:t['repeat']=repeat
+            c.write(self.root/'evaluations'/(job['id']+'.json'),self.m)
+        return job
 
     def row(self,tid,run=1,status='completed',solved=False,reason=None):
         expected=next(t for t in self.m['expected'] if t['task']==tid)
@@ -37,20 +42,20 @@ class ResumeTests(unittest.TestCase):
         calls=[];outer=self
         class Proc:
             def __init__(self,cmd,**kwargs):
-                tid=cmd[cmd.index('run')+1];indices=[int(i) for i in cmd[cmd.index('--repeat-indices')+1].split(',')]
+                tid=cmd[cmd.index('run')+1];indices=[1]
                 skip=kwargs['env']['HOURGLASS_SKIP_REASON'];calls.append((tid,indices,skip))
                 for i in indices:outer.row(tid,i,solved=solved and not skip,reason=skip or None)
             def wait(self, timeout=None):web.worker_stop=True;return 0
         with patch.object(web.subprocess,'Popen',Proc):web.worker()
         return calls
 
-    def test_resume_retries_only_failed_repeat_and_preserves_audit(self):
+    def test_historical_multiple_attempt_run_cannot_resume(self):
         job=self.interrupted(repeat=2);self.row('T00',1,solved=True);self.row('T00',2,status='error');self.row('T01',1,solved=True)
         log=web.LOGS/f"job-{job['id']}.log";log.write_text('ORIGINAL LOG\n')
-        resumed=web.resume_job({'job':job['id']});self.assertEqual(resumed['elapsed_s'],20)
-        calls=self.run_fake();self.assertEqual(calls,[('T00',[2],''),('T01',[2],'')]);self.assertTrue(log.read_text().startswith('ORIGINAL LOG\n'))
-        self.assertEqual(len(web.result_rows()),5);self.assertTrue(any(r['status']=='error' for r in web.result_rows()))
-        self.assertTrue(c.evaluations(self.root,web.result_rows())[0]['eligible']);self.assertEqual(len(list((self.root/'backups').glob('resume-*'))),1)
+        before=(web.RESULTS/'results.jsonl').read_bytes()
+        with self.assertRaisesRegex(ValueError,'runs once'):web.resume_job({'job':job['id']})
+        self.assertEqual((web.RESULTS/'results.jsonl').read_bytes(),before)
+        self.assertEqual(log.read_text(),'ORIGINAL LOG\n');self.assertFalse(web.queue)
 
     def test_resume_retains_wrong_streak_and_stop_rule(self):
         job=self.interrupted(n=21)

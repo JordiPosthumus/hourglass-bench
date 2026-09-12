@@ -9,7 +9,7 @@ through one identical minimal tool API, so results measure the *model* on
 Commands:
   hourglass.py cert <task-id>                     certify a task (bug fails / clean passes)
   hourglass.py generate <task-id> --repo R --test T [--mutation f|find|replace] [flags]
-  hourglass.py run <task-id> --model NAME [--repeat N] [--config models.json] [--no-sandbox]
+  hourglass.py run <task-id> --model NAME [--config models.json] [--no-sandbox]
   hourglass.py leaderboard                        per task×model aggregates
   hourglass.py frontier                           speed-vs-accuracy Pareto frontier on your hardware
 """
@@ -631,9 +631,8 @@ def cmd_run(args):
     if args.model not in models:
         raise SystemExit(f"model '{args.model}' not in {cfg_path} (have: {', '.join(models)})")
     mcfg = models[args.model]
-    repeat = args.repeat if args.repeat is not None else task.get("repeat", 3)
-    if not isinstance(repeat, int) or repeat < 1:
-        raise ValueError("Repeat count must be a positive integer")
+    if getattr(args, 'repeat', None) not in (None, 1) or getattr(args, 'repeat_indices', None) not in (None, '1'):
+        raise ValueError("Each question runs once")
     if task.get("kind") == "mcq" and (errors := validate_mcq(task)):
         raise ValueError("Invalid task: " + "; ".join(errors))
     prov = get_provenance(cfg_path)
@@ -652,15 +651,11 @@ def cmd_run(args):
     stop_limit = int(os.environ.get("HOURGLASS_STOP_AFTER_WRONG", run_tracking.STOP_AFTER_WRONG))
     unsupported_vision = requires_vision(task) and mcfg.get("supports_vision") is False
     had_error = False
-    indices = getattr(args, "repeat_indices", None)
-    runs = [int(i) for i in indices.split(",")] if indices else list(range(1, repeat + 1))
-    if len(set(runs)) != len(runs) or any(i < 1 or i > repeat for i in runs):
-        raise ValueError("Repeat indices must be distinct and within the saved repeat count")
-    for run in runs:
+    for run in (1,):
         task_identity.verify(TASKS/args.task,{'task_sha':task_sha,'task_bundle_sha':task_bundle_sha})
         task,option_presentation=option_layout.prepare(original_task,run,task_bundle_sha,presentation_seed) if not evaluation_id or manifest.get('option_layout_policy')==option_layout.POLICY else (original_task,None)
         run_id = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ") + "-" + uuid.uuid4().hex[:8]
-        print(f"START {args.task} · {args.model} · repeat {run}/{repeat}", flush=True)
+        print(f"START {args.task} · {args.model}", flush=True)
         started = time.time()
         checkpoint_path = os.environ.get('HOURGLASS_ATTEMPT_CHECKPOINT')
         attempt_state = {'task': args.task, 'run': run, 'run_id': run_id, 'started': started,
@@ -749,7 +744,7 @@ def cmd_run(args):
         if metrics.get("termination")=="turn_limit":rec["score_reason"]="turn_limit"
         import result_store
         result_store.commit(ROOT, rdir, rec)
-        print(f"[{args.task} | {args.model} | repeat {run}] status={rec['status']} solved={solved} "
+        print(f"[{args.task} | {args.model}] status={rec['status']} solved={solved} "
               f"time={metrics['duration_s']}s tools={metrics['tool_calls']} "
               f"tokens={metrics['prompt_tokens']}+{metrics['completion_tokens']}", flush=True)
         if metrics.get("error"):
@@ -870,7 +865,7 @@ def cmd_intake_bundle(args):
         task = {"id": qid, "kind": "mcq", "section": q.get("section"), "family": q.get("family"),
                 "tier": q.get("tier"), "level": q.get("intended_level"), "title": q.get("title"),
                 "mode": mode, "prompt": q["question"], "options": q.get("options") or [],
-                "max_turns": 40, "repeat": 3, "shuffle": "order", "assets": assets,
+                "max_turns": 40, "shuffle": "order", "assets": assets,
                 "provenance": {"bundle": str(d), "seeded": True},
                 "verifier": {"commands": [], "forbidden": []}}
         if mode == "option_id":
@@ -926,7 +921,7 @@ def cmd_generate(args):
         if len(parts) != 3: sys.exit("--mutation must be file|find|replace")
         muts.append({"file": parts[0], "find": parts[1], "replace": parts[2]})
     task = {"id": args.id, "title": args.title or f"seeded defect {args.id}", "tier": args.tier,
-            "repeat": args.repeat, "max_turns": args.max_turns,
+            "max_turns": args.max_turns,
             "source": {"repo": repo, "ref": args.ref, "sha": sha_ref},
             "exclude": args.exclude or [],
             "prompt": args.prompt or "A bug was introduced into this repository. Reproduce it, find the root cause, fix it properly, then call submit.",
@@ -965,7 +960,7 @@ def cmd_intake(args):
         (tdir / "verify" / "truth.json").write_text(json.dumps(
             {"answer": ch.get("answer"), "value": ch.get("answer_value"), "question": ch["question"]}))
         task = {"id": tid, "kind": "chart-vqa", "title": f"{ch.get('family','chart')} t{ch.get('tier')}",
-                "tier": ch.get("tier", 1), "repeat": 3, "image": "chart.png",
+                "tier": ch.get("tier", 1), "image": "chart.png",
                 "prompt": ch["question"], "choices": ch["choices"], "answer": ch.get("answer"),
                 "answer_value": ch.get("answer_value"), "tolerance_pct": ch.get("tolerance_pct", 5),
                 "mode": mode, "shuffle": True, "family": ch.get("family"),
@@ -985,13 +980,12 @@ def main():
     g.add_argument("id"); g.add_argument("--repo", required=True); g.add_argument("--ref", default="HEAD")
     g.add_argument("--test", nargs="+"); g.add_argument("--mutation", action="append")
     g.add_argument("--exclude", nargs="*"); g.add_argument("--verify", nargs="+")
-    g.add_argument("--tier", type=int, default=2); g.add_argument("--repeat", type=int, default=3)
+    g.add_argument("--tier", type=int, default=2)
     g.add_argument("--max-turns", type=int, default=40)
     g.add_argument("--title"); g.add_argument("--prompt")
     g.set_defaults(fn=cmd_generate)
     r = sub.add_parser("run"); r.add_argument("task"); r.add_argument("--model", required=True)
-    r.add_argument("--repeat", type=int); r.add_argument("--config"); r.add_argument("--no-sandbox", action="store_true")
-    r.add_argument("--repeat-indices", help=argparse.SUPPRESS)
+    r.add_argument("--config"); r.add_argument("--no-sandbox", action="store_true")
     r.set_defaults(fn=cmd_run)
     i = sub.add_parser("intake"); i.add_argument("dir"); i.set_defaults(fn=cmd_intake)
     b = sub.add_parser("intake-bundle"); b.add_argument("dir"); b.set_defaults(fn=cmd_intake_bundle)
