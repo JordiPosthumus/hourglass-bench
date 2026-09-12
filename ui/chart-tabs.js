@@ -47,7 +47,7 @@ async function loadInlineChart(url){
     for(const node of [svg,...svg.querySelectorAll('*')])for(const attr of [...node.attributes]){
       if(/^on/i.test(attr.name)||/href$/i.test(attr.name))node.removeAttribute(attr.name);
     }
-    chart.replaceChildren(document.importNode(svg,true));chart.hidden=false;
+    chart.replaceChildren(document.importNode(svg,true));chart.hidden=false;ForecastTarget.render(chart,chartView);
   }catch(error){
     if(chartRequestKey!==url)return;
     chartRequestKey='';chart.hidden=true;

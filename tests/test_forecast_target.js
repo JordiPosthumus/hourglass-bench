@@ -1,0 +1,10 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),{position}=require('../ui/forecast-target.js');
+const ticks=[{value:-10,y:500},{value:10,y:300},{value:30,y:100}];
+assert.deepEqual(position(20,1030,ticks),{x:1030,y:200,outside:null});
+assert.deepEqual(position(40,1030,ticks),{x:1030,y:100,outside:'above'});
+assert.deepEqual(position(-20,1030,ticks),{x:1030,y:500,outside:'below'});
+assert.equal(position(NaN,1030,ticks),null);assert.equal(position(1,1030,[]),null);
+const app=fs.readFileSync('ui/app.js','utf8'),tabs=fs.readFileSync('ui/chart-tabs.js','utf8');
+assert(app.includes("forecastNote=''"));assert(app.includes("${predicting?'':`<small>"));
+assert(app.includes('ForecastTarget.render(chart,chartView)'));assert(tabs.includes('ForecastTarget.render(chart,chartView)'));
+console.log('Forecast target: negative scales, interpolated position, out-of-range indicators, refresh hooks and compact metric passed.');

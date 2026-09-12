@@ -3,6 +3,7 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 require('./test_run_drawer.js');
 require('./test_score_predictor.js');
+require('./test_forecast_target.js');
 (async()=>{
  const source=fs.readFileSync('ui/app.js','utf8');
  const html=fs.readFileSync('ui/index.html','utf8');

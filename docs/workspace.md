@@ -4,7 +4,7 @@ Every new benchmark uses the complete installed question bank in the order defin
 
 ## Runs and Archived runs
 
-During active runs, the headline shows an [experimental predicted final score](score-prediction.md) when enough compatible full-hour history is available. Earned points remain underneath; final results and charts continue to use measured scores. Prediction never stops a run.
+During active runs, the headline shows an [experimental predicted final score](score-prediction.md) when enough compatible full-hour history is available. Earned points remain in the help tooltip; final results and charts continue to use measured scores. Prediction never stops a run.
 
 **New run**, beside the saved-run picker, opens a right-side setup drawer. Closing it with Close, Escape or the backdrop preserves the current draft while the page remains open. The model and connection check stay visible; endpoint, hardware, inference details and benchmark rules are expandable. Review opens a confirmation dialog, and a successful start closes setup and focuses the queued run. With no saved runs, setup appears inline instead. The fixed bank is summarized by its question count, without sample question IDs.
 

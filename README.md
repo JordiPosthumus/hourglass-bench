@@ -57,7 +57,7 @@ Store your bank under `tasks/`, with one `task.json` per question directory. See
 
 Hourglass 4.1.0 uses the pinned Pi SDK’s native model declarations, thinking selection, context sizing, compaction and retry defaults. Read [inference profiles](docs/inference-profiles.md) before creating or migrating a configuration. Existing historical profiles keep their saved behavior.
 
-The official **Hourglass Score** is total points earned within one active hour. Correct attempts earn their frozen authored reward; wrong final answers lose one point. During active runs, the UI can show an [experimental predicted final score](docs/score-prediction.md), with earned points underneath. Final results and charts remain measured totals. See [the score definition](docs/scoring.md).
+The official **Hourglass Score** is total points earned within one active hour. Correct attempts earn their frozen authored reward; wrong final answers lose one point. During active runs, the UI can show an [experimental predicted final score](docs/score-prediction.md), with earned points in its help tooltip. Final results and charts remain measured totals. See [the score definition](docs/scoring.md).
 
 1. The UI freezes the full installed question bank, rule-defined order, model configuration and evaluation policies.
 2. The bundled Pi agent works through the questions using files, bash and tools in isolated workspaces.
