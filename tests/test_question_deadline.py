@@ -31,13 +31,13 @@ for repeat in indices:
 '''
 
 class QuestionDeadlineTests(unittest.TestCase):
- def exercise(self, tasks=('a','b'), used=None, hour_used=0):
+ def exercise(self, tasks=('a','b'), used=None, hour_used=0, question_limit=.25):
   with tempfile.TemporaryDirectory() as directory:
    root=Path(directory);(root/'hourglass.py').write_text(FIXTURE);(root/'results').mkdir()
    expected=[{'task':t,'repeat':1,'task_sha':'fixture'} for t in tasks]
    manifest={'id':'fixture','expected':expected,'model_config_snapshot':{},'config_hash':web.calibration.digest({}),'scoring_policy':'net-hour-v2'}
    condition=threading.Condition();done=deque()
-   job={'id':'fixture','tasks':list(tasks),'model':'fixture','state':'pending','elapsed_s':hour_used,'question_timeout_s':.25,'question_elapsed_s':used or {}}
+   job={'id':'fixture','tasks':list(tasks),'model':'fixture','state':'pending','elapsed_s':hour_used,'question_timeout_s':question_limit,'question_elapsed_s':used or {}}
    def rows():
     path=root/'results/results.jsonl'
     return [json.loads(l) for l in path.read_text().splitlines()] if path.exists() else []
@@ -76,12 +76,12 @@ class QuestionDeadlineTests(unittest.TestCase):
   self.assertFalse(any(r['status']=='timeout' for r in rows));self.assertLess(elapsed,1)
 
  def test_failure_time_is_retained_for_resume(self):
-  job,rows,elapsed=self.exercise(tasks=('fail',))
+  job,rows,elapsed=self.exercise(tasks=('fail',),question_limit=2)
   self.assertEqual(job['state'],'error');self.assertGreater(job['question_elapsed_s']['fail'],.07)
   self.assertEqual(self.sound_calls,[mock.call(failed=True)])
 
  def test_missing_result_plays_failure_sound_once(self):
-  job,rows,elapsed=self.exercise(tasks=('missing',))
+  job,rows,elapsed=self.exercise(tasks=('missing',),question_limit=2)
   self.assertEqual(job['state'],'error');self.assertIn('valid result',job['error'])
   self.assertEqual(self.sound_calls,[mock.call(failed=True)])
 
