@@ -3,6 +3,11 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 (async()=>{
  const source=fs.readFileSync('ui/app.js','utf8');
+ const html=fs.readFileSync('ui/index.html','utf8');
+ assert(!html.includes('id="liveSplit"'), 'Redundant score cards stay out of the run view');
+ assert(!source.includes("$('liveSplit')"), 'Renderer does not target removed score cards');
+ assert(!html.includes('The chart follows the selected saved run'), 'Redundant chart instructions stay removed');
+ assert(html.includes('id="liveScoreChart"') && html.includes('id="liveMetrics"'), 'Chart and primary metrics remain available');
  const button={},messages=[],full='BEGIN\n'+'x'.repeat(60000)+'\nEND';let copied=null,url;
  const context={$:()=>button,logId:'fixture',S:{calibration_available:true},toast:m=>messages.push(m),navigator:{clipboard:{writeText:async t=>{copied=t}}},fetch:async u=>{url=u;return {ok:true,text:async()=>full}}};
  vm.createContext(context);vm.runInContext(source.slice(source.indexOf("$('copyFullLog').onclick="),source.indexOf('function allJobs()')),context);
