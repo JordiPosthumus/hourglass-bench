@@ -99,7 +99,7 @@ class RepairTests(unittest.TestCase):
         r={'evaluation_id':job['id'],'run_id':'replacement','task':'A','run':1,'status':'completed','solved':True,'ts':at(10020),'completion_tokens':8}
         files=score_report.build(self.root,job,self.rows+[r],job);report=json.loads(files['report.json'])
         self.assertEqual(report['weighted_points'],1);self.assertEqual(report['repair']['policy'],repair_runs.POLICY)
-        self.assertIn('Repaired run',files['README.md']);self.assertIn('Repaired run',files['score.svg'])
+        self.assertIn('Repaired run',files['README.md']);self.assertIn(' · Repaired',files['score.svg'])
         self.assertFalse(any('PRIVATE' in text for text in files.values()))
         self.assertTrue(all(p['weighted']==0 for p in report['curve'] if p['seconds']<3420))
         self.assertEqual(report['curve'][-1]['weighted'],1)
@@ -127,7 +127,7 @@ class RepairTests(unittest.TestCase):
         import web
         for active,pending in (([{'id':'other'}],[]),([],[{'id':'queued'}])):
             with patch.object(web,'running',active),patch.object(web,'queue',pending),patch.object(repair_runs,'create') as create:
-                with self.assertRaisesRegex(ValueError,'Each repair starts manually'):web.start_repair({})
+                with self.assertRaisesRegex(ValueError,'Targeted reruns are not supported'):web.start_repair({})
                 create.assert_not_called()
 
 

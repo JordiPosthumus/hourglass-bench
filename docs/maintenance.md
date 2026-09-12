@@ -6,7 +6,7 @@ This guide is for future maintainers and agents. Read the repository's working a
 
 Read [Issue for Agents](issues-for-agents.md), [the replayable output-space patch](../backend-patches/output-space/README.md), [server specifics](server-specifics-guide.md) and [inference profiles](inference-profiles.md) before changing a backend. The patch helper checks exact source hashes, backs up changes and supplies rollback; rebuilding a deployment still requires preserving its existing image, pins, kernels, launch flags and prerequisite patches. Validate complete prompt handling, intentional small limits and a real cold-to-warm cache hit.
 
-Hourglass 4.0.0 uses native Pi declarations for new profiles; historical profiles retain their saved behavior. The headline metric is `total-points-v1`; see [scoring](scoring.md). Calibration and forecasts are removed. Frozen evaluation storage lives in evaluation_store.py.
+Hourglass 4.1.0 uses native Pi declarations for new profiles; historical profiles retain their saved behavior. The headline metric is `total-points-v1`; see [scoring](scoring.md). Calibration and forecasts are removed. Frozen evaluation storage lives in `evaluation_store.py`. See the [workspace guide](workspace.md) and [changelog](../CHANGELOG.md) for current behavior.
 
 ## Safe model updates
 
@@ -22,7 +22,7 @@ The normal launcher is `./start-hourglass.sh`. `HOURGLASS_PORT` chooses a loopba
 
 ## Scoring and execution boundaries
 
-`weighted-hour-v1` awards fixed difficulty weights once per distinct correctly completed question: charts tier 1–10 maps linearly to 1–2, games tier 1–5 to 1–2, and math high school/undergraduate/graduate to 1/1.5/2. Other or unlabeled questions earn 1. Raw correct counts remain visible. Weights are independent of the selected bank and frozen in new manifests; historical enrichment requires a matching content hash. Authored labels are provisional rather than empirically calibrated difficulty.
+New `net-hour-v3` runs score every round attempt independently: correct answers earn the frozen weight, wrong final answers lose one point, and unfinished/unsupported outcomes earn zero. Historical policies remain attached to their original runs. For correct answers, charts tier 1–10 maps linearly to 1–2, games tier 1–5 to 1–2, and math high school/undergraduate/graduate to 1/1.5/2. Other or unlabeled questions earn 1. Challenges earn 2 points. Raw correct counts remain visible. Weights are independent of library sorting and frozen in new manifests; historical enrichment requires a matching content hash. Authored labels are provisional rather than empirically calibrated difficulty.
 
 `hour-v1` defines an inclusive 3,600-active-second completion boundary. Thinking, tools, initialization, grading and retries normally count; pauses between resumes do not. Late answers do not count. Partial runs are not extrapolated. Consecutive wrong answers do not stop a run.
 
@@ -70,7 +70,10 @@ Relevant files:
 - `hourglass.py`, `launch.py`, `web.py`: CLI, launch and queue.
 - `harness_runner.py`, `harness/pi.mjs`: native Pi integration.
 - `vendor/pi-0.85.1/`, `harness/pi-lock.json`: frozen dependency snapshot and inventory.
-- `calibration.py`: frozen manifests and evaluation metadata.
+- `evaluation_store.py`: frozen manifests and evaluation metadata.
+- `question_rounds.py`: persisted whole-bank round order and resume position.
+- `ui/question-library.js`: revision-matched question statistics and sorting.
+- `run_archive.py`: reversible archive metadata, separate from evidence.
 - `hour_score.py`, `score_weights.py`, `ui/hour-score.js`: score calculation and parity.
 - `hardware_records.py`: machine recording and explicit remote profiles.
 - `score_report.py`, `score_publisher.py`: aggregate report allowlist and reviewed publication.
@@ -115,7 +118,7 @@ Rollback only when the affected component is idle. Restore the exact backed-up f
 
 ## Main-page charts
 
-The selected run and publication preview use report rendering integrated into the main controller. The Results chart now uses four colored accuracy/token-efficiency quadrants: higher accuracy goes up, and fewer median output tokens per scored answer goes right. Dots are labeled by model; bubble area is proportional to scored answers per active minute. The legend retains machine, run, sample count, speed and status. Until the owner requests otherwise, both axes automatically fit the displayed data with padding, and each quadrant boundary bisects its displayed axis range. Accuracy stays within 0–100% and token counts stay nonnegative. The four colored regions are equal-sized; their numerical boundaries adapt to the data and are not pass/fail thresholds. All scored answers for a displayed run must have valid output-token counts. Missing counts are not treated as zero. Output tokens include reported reasoning, tool calls and final answers. Filtered question sets and tokenizers may differ, so this is descriptive rather than a controlled ranking.
+The selected run and publication preview use report rendering integrated into the main controller. The Results chart now uses four colored accuracy/token-efficiency quadrants: higher accuracy goes up, and fewer median output tokens per scored answer goes right. Dots are labeled by model; bubble area is proportional to scored answers per active minute. Run names identify observations; hover details retain sample count, speed and status without repeating machine labels or rule strings. Until the owner requests otherwise, both axes automatically fit the displayed data with padding, and each quadrant boundary bisects its displayed axis range. Accuracy stays within 0–100% and token counts stay nonnegative. The four colored regions are equal-sized; their numerical boundaries adapt to the data and are not pass/fail thresholds. All scored answers for a displayed run must have valid output-token counts. Missing counts are not treated as zero. Output tokens include reported reasoning, tool calls and final answers. Filtered question sets and tokenizers may differ, so this is descriptive rather than a controlled ranking.
 
 ## Recording hardware and exporting the bubble chart
 
@@ -129,9 +132,9 @@ The sixth report file, `quadrants.svg`, includes the accuracy/token-efficiency/s
 ## Hardware, ordering and comparison updates
 Hardware entry is one optional `hardware` string on each model in `models.json`, editable in the same Settings card. Existing endpoint profiles remain a fallback; past run records remain frozen. Reuse a description for the same machine and distinguish separate machines in their descriptions.
 
-New runs use a fixed easy → medium → hard cycle, rotating categories within each band. Games use tiers 1–2 / 3 / 4–5; charts and estimated math levels use 1–3 / 4–7 / 8–10. Every selected question is retained; exhausted bands are skipped and unknown difficulty follows classified questions. Existing runs resume their original order. Exact order is included in comparison fingerprints. Difficulty does not modify reasoning settings or token limits; actual reasoning time is determined by the model.
+New runs use a fixed easy → medium → hard cycle, rotating categories within each band. Games use tiers 1–2 / 3 / 4–5; charts and estimated math levels use 1–3 / 4–7 / 8–10. Every installed question is retained; exhausted bands are skipped and unknown difficulty follows classified questions. Existing runs resume their original order. Exact order is included in comparison fingerprints. Difficulty does not modify reasoning settings or token limits; actual reasoning time is determined by the model.
 
-Run charts offer same/all hardware scope and cumulative/ranking/accuracy-efficiency views. All-hardware comparisons still match bank, order, repeats, scoring and timing policies, and benchmark version. The selected run is compared with the latest matching run per model and machine. Rankings show actual weighted points, hardware and score status without extrapolation. Report previews include `ranking.svg` and record the comparison scope.
+Run charts offer same/all hardware scope and cumulative/ranking/accuracy-efficiency views. All-hardware comparisons still match bank, order, repeats, scoring and timing policies, and benchmark version. Individual runs are shown by default; optional repeat averaging requires compatibility. Rankings show recorded points and status, with run names as identifiers. Detailed hardware and rules remain in run records, not redundant graph-label lines. Report previews include `ranking.svg` and record the comparison scope.
 
 The log display clears on new run, run selection and resume. It shows the current invocation; Copy full log preserves earlier resume segments. Tool validation errors are printed with details, and global leaderboard tables no longer repeat in per-question console logs. Saved leaderboards still update.
 
@@ -146,14 +149,14 @@ Start the app from your own Terminal with `./start-hourglass.sh`. SIGINT, SIGTER
 
 New attempts keep harness traces, stderr, integrity records, Pi request configuration and SDK sessions in `runtime-diagnostics/`, outside the model workspace. All exposed filesystem tools and bash run with OS denials for harness runtime storage, including when optional task sandboxing is disabled. Authored task files remain available. Result artifacts retain the original trace plus raw diagnostic copies; recovery supports historical locations only for older attempts. No model limits, thinking settings, question content or scoring weights change.
 
-In the run view, choose **Reset & rerun questions**, select individual attempts, enter a reason and reset once active and queued work are idle. Raw artifacts remain available; a timestamped backup saves the original index, manifests and reference scales. A reset ledger prevents crash recovery from restoring deliberately removed results. Reset runs cannot publish their old hourly score or resume that clock. The rerun buttons select affected questions and the saved model; review the new run to start it. Previous reset plans remain accessible from the same control. These are fresh targeted evaluations, not replacements for a complete one-hour comparison.
+Historical reset and repair records remain available for audit. Reset ledgers prevent crash recovery from restoring deliberately removed results. Reset runs cannot publish their old hourly score or resume that clock. Targeted rerun creation is no longer offered: start a new full-bank run for a new measurement, and use reversible archiving to hide old runs without deleting evidence.
 
 
 ## Hourglass 2.7.1 release
 
 The product and repository use the name Hourglass. Legacy launch and stop entry points continue to work, and old controller identity strings remain recognized. Existing environment variables and persisted browser state retain compatibility.
 
-Repository discovery tasks can be woven into the selected bank after every eight existing questions, with Games, Hourglass and DSG rotation and source subtotals. No private task content is included in this repository. See [methodology](methodology.md) and [private question versioning](private-question-bank.md).
+Repository discovery tasks can be woven into the installed bank after every eight existing questions, with Games, Hourglass and DSG rotation and source subtotals. No private task content is included in this repository. See [methodology](methodology.md) and [private question versioning](private-question-bank.md).
 
 The start review displays the saved configuration once, without duplicate naming inputs. Missing descriptive fields do not block execution; genuine configuration/revision errors remain visible inside the dialog. Start errors leave the reviewed request intact for retry.
 

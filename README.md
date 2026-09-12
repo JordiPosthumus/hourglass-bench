@@ -35,9 +35,13 @@ Configure a local `models.json` using `models.example.json` as a format referenc
 
 Before setting up or rebuilding a model server, read [known agent/server issues](docs/issues-for-agents.md). Large output requests must use the space remaining after the complete prompt, including tool history and vision inputs. The [replayable patch bundle](backend-patches/output-space/README.md) provides exact source checks, backups, rollback and validation steps. Preserve the owner's established model capabilities and settings.
 
-## Run views
+## Your workspace
 
-Charts use visible tabs, with points over time first. Right-hand labels identify runs; hover or focus a line or label to highlight it. Archive hides an idle run from normal results and comparisons without deleting answers, settings, logs or artifacts. Restore it from Archived runs. Each new run and resume has an unscored warm-up before the scoring clocks start.
+**Runs · Archived runs · Questions.** Keep the run view focused, and open the question library when you want to inspect the bank. Click column headings to sort by average answer time, wrong-answer rate, timeouts, execution errors, points or attempt count. Previews show the question and its public files. Sample counts are explicit; unknown statistics stay unknown.
+
+Every benchmark runs the **full installed bank** in its rule-defined order. There are no question-selection controls, and table sorting never changes execution. The server rejects subset requests.
+
+Charts use visible tabs, with points over time first. Run labels identify each series without redundant hardware or rule text. Archive hides an idle run without deleting its evidence; restore it from Archived runs. See the [workspace guide](docs/workspace.md) and [changelog](CHANGELOG.md).
 
 ## Build a bank that matters to you
 
@@ -51,18 +55,18 @@ Store your bank under `tasks/`, with one `task.json` per question directory. See
 
 ## How the evaluation works
 
-Hourglass 3.0.0 uses the pinned Pi SDK’s native model declarations, thinking selection, context sizing, compaction and retry defaults. Read [inference profiles](docs/inference-profiles.md) before creating or migrating a configuration. Existing historical profiles keep their saved behavior.
+Hourglass 4.1.0 uses the pinned Pi SDK’s native model declarations, thinking selection, context sizing, compaction and retry defaults. Read [inference profiles](docs/inference-profiles.md) before creating or migrating a configuration. Existing historical profiles keep their saved behavior.
 
-The headline **Hourglass Score** measures the area under net points over active time, scaled so that steady perfect completion of the frozen bank over one hour scores 100. Earlier correct work earns more; scores can exceed 100. Unfinished runs show a clearly labelled forecast after the first answered question. Rankings and exports use measured scores. See [the score definition](docs/results-history.md#hourglass-score).
+The headline **Hourglass Score** is total points earned within one active hour. Correct attempts earn their frozen authored reward; wrong final answers lose one point. Partial runs show their recorded total, never a forecast. See [the score definition](docs/scoring.md).
 
-1. The UI freezes the selected questions, order, model configuration and evaluation policies.
+1. The UI freezes the full installed question bank, rule-defined order, model configuration and evaluation policies.
 2. The bundled Pi agent works through the questions using files, bash and tools in isolated workspaces.
 3. Hourglass grades submissions and records timing, usage, evidence and configuration provenance.
 4. The controller stops the benchmark process group at 3,600 active seconds. Pauses between resumes do not count.
 
 New runs use `net-hour-v3`. Total points are the sum of each attempt’s correct-answer reward or wrong-answer penalty within one hour. A correct answer earns its frozen authored weight; an incorrect final answer loses one point. Unfinished and unsupported outcomes earn zero. There is no AUC, forecast or custom calibration.
 
-Questions rotate through difficulty bands and subjects; optional challenge and repository-discovery groups have a documented cadence. Each attempt has a 15-minute limit within the original one-hour clock. After the first pass, repeat the entire bank using the latest attempt: wrong answers first, then unfinished questions, then correct answers; slowest first in every group. Each attempt has a fresh conversation and workspace, without previous answers or grading. New runs randomize option IDs and positions using a private run seed; resumes retain that seed. Thus separate runs can have different option layouts even with identical bank files. See [methodology](docs/methodology.md), [prompt contract](docs/prompt-contract.md) and [run identity](docs/run-identity.md) for comparison limits. Uncalibrated questions carry no empirical difficulty claim.
+Questions rotate through difficulty bands and subjects; challenge and repository-discovery groups, when present in the bank, have a documented cadence. Each attempt has a 15-minute limit within the original one-hour clock. After the first pass, repeat the entire bank using the latest attempt: wrong answers first, then unfinished questions, then correct answers; slowest first in every group. Each attempt has a fresh conversation and workspace, without previous answers or grading. An unscored warm-up precedes each new run and resume, before the scoring clocks start. New runs randomize option IDs and positions using a private run seed; resumes retain that seed. Thus separate runs can have different option layouts even with identical bank files. See [methodology](docs/methodology.md), [prompt contract](docs/prompt-contract.md) and [run identity](docs/run-identity.md) for comparison limits. Authored tiers carry no empirical difficulty claim.
 
 **Start timed evaluations in the UI.** The `hourglass.py run` command is for individual-task diagnostics and does not enforce a whole-evaluation hour by itself. `./stop-hourglass.sh` saves and stops this checkout's work; model servers remain running. Resume uses the saved run and clock when reliable timing evidence exists.
 
@@ -94,6 +98,7 @@ node tests/test_ui.js
 node tests/test_start_run.js
 node tests/test_tps.js
 node tests/test_speed.js
+node tests/test_question_library.js
 python3 scripts/check_public_release.py
 ```
 

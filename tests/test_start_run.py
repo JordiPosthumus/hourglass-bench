@@ -14,6 +14,25 @@ import web
 
 
 class StartRunTests(unittest.TestCase):
+    def test_subsets_are_rejected_and_full_bank_order_is_server_defined(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            for tid,tier in [('easy',1),('hard',10),('medium',4)]:
+                task=root/'tasks'/tid/'task.json';task.parent.mkdir(parents=True)
+                task.write_text(json.dumps({'id':tid,'kind':'mcq','section':'chart','tier':tier,
+                    'prompt':'Fixture.','options':[{'id':'001','text':'One'},{'id':'002','text':'Two'}],'answer':'001'}))
+            (root/'models.json').write_text(json.dumps({'models':[{'name':'fixture','model':'fixture','base_url':'http://example.invalid/v1'}]}))
+            with patch.object(web,'ROOT',root),patch.object(web,'TASKS',root/'tasks'),patch.object(web,'queue',deque()),patch.object(web,'shutting_down',False):
+                for tids in ([],['easy'],['easy','medium'],['easy','medium','hard','unknown']):
+                    with self.subTest(tids=tids),self.assertRaisesRegex(ValueError,'full installed question bank'):
+                        web.enqueue({'model':'fixture','tasks':tids})
+                self.assertFalse((root/'evaluations').exists())
+                job=web.enqueue({'model':'fixture','tasks':['hard','medium','easy']})
+                self.assertEqual(job['tasks'],['easy','medium','hard'])
+                self.assertEqual(job['total_tasks'],3)
+                frozen=json.loads((root/'evaluations'/(job['id']+'.json')).read_text())
+                self.assertEqual(frozen['order'],job['tasks'])
+
     def test_single_attempt_is_fixed_for_all_api_inputs(self):
         for supplied in ({}, {'repeat':None}, {'repeat':1}, {'repeat':3}, {'repeat':0}, {'repeat':True}, {'repeat':'1'}):
             with self.subTest(supplied=supplied), tempfile.TemporaryDirectory() as directory:

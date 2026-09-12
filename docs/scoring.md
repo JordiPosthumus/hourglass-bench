@@ -1,5 +1,7 @@
 # Scoring: total points
 
+Every new benchmark uses the full installed bank. The server rejects subsets and computes first-pass order from the catalog, regardless of library sorting. Invalid installed questions must be repaired before starting, not omitted from a run.
+
 New evaluations use `net-hour-v3` and `total-points-v1`. Every correct attempt earns its frozen authored weight; every incorrect final answer loses one point. Unsupported vision, timeouts and unfinished attempts earn zero. A later correct answer does not erase an earlier penalty. There is no AUC, normalization, prediction or custom calibration.
 
 The first pass uses the existing bank order. Each subsequent round visits the whole bank once, ordered by the latest attempt: wrong answers, unfinished questions, then correct answers. Within each group, longest duration first; ties retain original bank order. A fresh conversation and workspace isolate every attempt from previous answers and grading. Round order is persisted before execution and survives resume.

@@ -12,7 +12,7 @@ Common hardware and quantization spellings are normalized. Display abbreviations
 
 ## Compare history and repeats
 
-**All runs · all versions** includes historical runs even when the question bank changed. Same-bank and same-hardware filters remain available. The chart labels benchmark and scoring rules; showing history together does not make different banks equivalent.
+**All runs · all versions** includes historical runs even when the question bank changed. Same-bank and same-hardware filters remain available. Graph labels use run names without repeating hardware or scoring/deadline strings. Detailed rules remain in the run records and report data; showing history together does not make different banks equivalent.
 
 Completed equivalent repeats appear as an arithmetic mean with the number of measurements. Equivalence requires the same execution configuration, hardware, full benchmark version, question bank/order/repeats, scoring, and timing rules. Live and partial runs stay individual. Mean curves average the recorded step values at every completion time; finalized scores remain flat through the end of the hour. Nothing is extrapolated from unfinished runs.
 

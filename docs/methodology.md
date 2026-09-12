@@ -24,7 +24,7 @@ Within each band, the scheduler rotates among available subjects, such as charts
 
 Mathematics education labels map to estimated scheduling tiers 1, 5 and 9 when no numeric tier is supplied. The bands used for scheduling are separate from the fixed scoring weights.
 
-An exhausted band is skipped. Questions with unknown difficulty follow the classified questions. Each selected question appears once in the ordered list; the standard evaluation uses one attempt per question. The sequence is deterministic and does not adapt to a model's answers.
+An exhausted band is skipped. Questions with unknown difficulty follow the classified questions. Every installed question appears once in the deterministic first-pass list. Library sorting and filters never change execution order; subset starts are rejected. Later rounds revisit the full bank using the latest outcome-and-duration ordering within the original hour.
 
 ## Challenge questions in the private reference bank
 
@@ -38,7 +38,7 @@ The regular difficulty cycle continues across each insertion. It does not restar
 | 6–10 | Medium → Hard → Easy → Medium | Challenge |
 | 11–15 | Hard → Easy → Medium → Hard | Challenge |
 
-These blocks are a way to describe the cadence, not separate timed rounds. Challenges follow their fixed authored rank; that rank is not a claim of empirically increasing difficulty. In a selected subset, insertion still follows each four regular questions, and any challenges left when regular questions run out are appended.
+These blocks are a way to describe the cadence, not separate timed rounds. Challenges follow their fixed authored rank; that rank is not a claim of empirically increasing difficulty. Insertion follows each four regular questions, and any challenges left when regular questions run out are appended. Every new evaluation includes the entire installed bank.
 
 Each reference challenge has distinct pilot and held-out input variants, twelve answer choices, and two reference solving methods. Pilot model work is inspected for ambiguity, shortcuts and mistakes in the question. The scored input is held out from those pilots. This provides evidence of solvability; it does not establish uniform difficulty or freedom from every possible shortcut.
 

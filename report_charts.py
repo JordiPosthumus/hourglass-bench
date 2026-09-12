@@ -210,7 +210,7 @@ def measured_points(curve):
 
 def progress_chart(reports,scope='same',legend=True):
     width=1440;left,right,top,bottom=82,1030,132,max(560,132+len(reports)*56)
-    height=bottom+140+(math.ceil(len(reports)/2)*64 if legend else 0)
+    height=bottom+140+(math.ceil(len(reports)/2)*48 if legend else 0)
     values=[0,1]+[p['weighted'] for r in reports for p in r['curve']]+[r['weighted_points'] for r in reports]
     ymin,ymax=min(values),max(values);span=ymax-ymin
     ymin-=span*.04 if ymin<0 else 0;ymax+=span*.04
@@ -246,7 +246,7 @@ def progress_chart(reports,scope='same',legend=True):
         current=bool(r.get('is_current_run'))
         opacity=1 if current or not has_current else .3
         name=r.get('display_name',r['model'])
-        detail=f"{name} · {r.get('hardware',{}).get('label','Hardware not recorded')} · {r.get('run_date','')} · {r.get('run_key','')} · {r['weighted_points']:.2f} points · {r.get('state','unknown')}"
+        detail=f"{name} · {r.get('run_date','')} · {r.get('run_key','')} · {r['weighted_points']:.2f} points · {r.get('state','unknown')}"
         out.append(f'<g class="series" tabindex="0" aria-label="{esc(detail,quote=True)}" opacity="{opacity}" data-series="{i}" data-current="{str(current).lower()}"><title>{esc(detail)}</title>')
         color=color_for(i);points=step_points(r['curve']);coords=' '.join(f"{x(p['seconds']):.2f},{y(p['weighted']):.2f}" for p in points)
         dash=' stroke-dasharray="7 5"' if r.get('state')!='final' else ''
@@ -265,14 +265,12 @@ def progress_chart(reports,scope='same',legend=True):
         out.append(f'<text x="{lx}" y="{yy+34:.2f}" font-size="11" fill="{color}">#{rank[i]} · {r["weighted_points"]:.1f} pts · {esc(identity)}</text>')
         out.append('</g>')
         if legend:
-            xx=40+(i%2)*530;yy=bottom+93+(i//2)*64
+            xx=40+(i%2)*530;yy=bottom+93+(i//2)*48
             star='*' if r.get('clock_adjustment_seconds') else ''
             name=r.get('display_name',r['model'])+(' · CURRENT RUN' if r.get('is_current_run') else '')
             short=name if len(name)<=57 else name[:54]+'…'
-            meta=r.get('hardware',{}).get('label','Hardware not recorded')+' · '+rules_label(r)
-            short_meta=meta if len(meta)<=88 else meta[:85]+'…'
             detail=f'{r["weighted_points"]:.1f}{star} points · {r.get("raw_correct",0)} correct · {r.get("state","unknown")}'
-            out.append(f'<path d="M{xx} {yy-5}h22" stroke="{color}" stroke-width="3"{dash}/><text x="{xx+30}" y="{yy}" font-size="12" font-weight="600"><title>{esc(name)}</title>{esc(short)}</text><text x="{xx+30}" y="{yy+18}" font-size="11" fill="#71827a">{esc(detail)}</text><text x="{xx+30}" y="{yy+34}" font-size="10" fill="#71827a"><title>{esc(r.get("hardware",{}).get("label","Hardware not recorded"))} · {esc(rules_label(r))}</title>{esc(short_meta)}</text>')
+            out.append(f'<path d="M{xx} {yy-5}h22" stroke="{color}" stroke-width="3"{dash}/><text x="{xx+30}" y="{yy}" font-size="12" font-weight="600"><title>{esc(name)}</title>{esc(short)}</text><text x="{xx+30}" y="{yy+18}" font-size="11" fill="#71827a">{esc(detail)}</text>')
     out.append(f'<text x="40" y="{height-27}" font-size="11" fill="#71827a">Each step is a recorded submission. Total points are the score; hover or focus a line or right-hand label to identify its run.</text>')
     if any(r.get('caveats') for r in reports):out.append(f'<text x="40" y="{height-28}" font-size="11" fill="#986810">⚠ Includes runs with diagnostic exposure; scores retained, timing impact unknown. See run caveats.</text>')
     if any(r.get('clock_adjustment_seconds') for r in reports):out.append(f'<text x="40" y="{height-10}" font-size="10" fill="#71827a">*Includes a disclosed clock adjustment.</text>')

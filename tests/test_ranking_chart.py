@@ -42,7 +42,7 @@ class RankingChartTests(unittest.TestCase):
         self.assertNotIn('Predicted final',svg)
         self.assertEqual(reports,before)
 
-    def test_full_angled_labels_fit_canvas_and_disclose_rules(self):
+    def test_full_angled_labels_fit_canvas_without_redundant_metadata(self):
         reports = [report('A <revision> & ' + 'very-long-model-name-' * 12, 30), report('Other model', 10)]
         root = ET.fromstring(score_report.ranking(reports)['ranking.svg'])
         width, height = float(root.attrib['width']), float(root.attrib['height'])
@@ -50,8 +50,9 @@ class RankingChartTests(unittest.TestCase):
             self.assertIn('rotate(-45)', label.attrib['transform'])
             visible = ''.join(label.itertext())
             self.assertIn(''.join(r['model'].split()), ''.join(visible.split()))
-            self.assertIn('512 GB', visible)
-            self.assertIn('net-hour-v2', visible)
+            self.assertNotIn('512 GB', visible)
+            self.assertNotIn('net-hour-v2', visible)
+            self.assertNotIn('900s/question', visible)
             self.assertNotIn('…', visible)
             x, y, w, h = map(float, label.attrib['data-label-bounds'].split(','))
             self.assertGreaterEqual(x, 0)
@@ -67,6 +68,20 @@ class RankingChartTests(unittest.TestCase):
         self.assertNotIn('unknown-score', svg)
         empty = score_report.ranking([report('unknown', None)])['ranking.svg']
         self.assertIn('No comparable Hourglass scores available', empty)
+
+    def test_graphs_omit_rule_text_and_duplicate_machine_labels(self):
+        r = {**report('Machine included in run name', 12),
+             'weighted_points': 12, 'raw_correct': 8,
+             'curve': [{'seconds': 3600, 'weighted': 12}],
+             'efficiency': {'token_data_complete': False}}
+        import report_charts
+        charts = [score_report.ranking([r], 'history')['ranking.svg'],
+                  score_report.quadrants([r], 'history')['quadrants.svg'],
+                  report_charts.progress_chart([r], 'history', legend=True)]
+        for svg in charts:
+            self.assertNotIn('net-hour-v2', svg)
+            self.assertNotIn('900s/question', svg)
+            self.assertNotIn('Test machine · 512 GB', svg)
 
 
 if __name__ == '__main__':

@@ -182,7 +182,7 @@ class WebTests(unittest.TestCase):
     def test_more_than_twenty_wrong_answers_do_not_skip_questions(self):
         for correct_at in [None,19]:
             with web.condition:web.queue.clear();web.running.clear();web.done.clear();web.worker_stop=False
-            tasks=[]
+            tasks=['G001']
             for i in range(42):
                 tid=f'T{i:02d}';tasks.append(tid);p=web.TASKS/tid;p.mkdir(exist_ok=True)
                 (p/'task.json').write_text(json.dumps({'id':tid,'kind':'mcq','prompt':'fixture','options':[{'id':'001','text':'a'},{'id':'002','text':'b'}],'answer':'001'}))
@@ -193,10 +193,10 @@ class WebTests(unittest.TestCase):
                     tid=cmd[cmd.index('run')+1];skip=kwargs['env'].get('HOURGLASS_SKIP_REASON','');calls.append(skip)
                     rows.append({'evaluation_id':job['id'],'task':tid,'status':'completed','solved':len(calls)-1==correct_at})
                 def wait(self, timeout=None):
-                    if len(calls)==42:web.worker_stop=True;job['stop_requested']=True
+                    if len(calls)==len(tasks):web.worker_stop=True;job['stop_requested']=True
                     return 0
             with patch.object(web.subprocess,'Popen',Proc),patch.object(web,'result_rows',side_effect=lambda:rows):web.worker()
-            self.assertEqual(calls,['']*42);self.assertIn(web.done[-1]['state'],('completed','stopped'))
+            self.assertEqual(calls,['']*len(tasks));self.assertIn(web.done[-1]['state'],('completed','stopped'))
             self.assertNotIn('stopped_after',web.done[-1])
         self.addCleanup(lambda:setattr(web,'worker_stop',False))
     def test_worker_uses_argv_and_preserves_single_stream(self):

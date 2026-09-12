@@ -71,6 +71,7 @@ def task_catalog():
             if not (p.parent/asset).is_file():issues.append('Missing asset: '+asset)
         if t.get('source') and not Path(t['source']['repo']).exists():issues.append('Source repository is unavailable')
         tasks.append({'id':p.parent.name,'kind':t.get('kind','fix'),'section':section,
+                      'task_sha':(hourglass.sha(p) or '')[:16],'points':score_weights.weight(t),
                       'task_bundle_sha':task_identity.identity(p.parent),'family':t.get('family') or section,'tier':t.get('tier',1),
                       'summary':question_context.summary(summaries,{'task':p.parent.name,'task_sha':(hourglass.sha(p) or '')[:16]}),
                       'order_tier':run_tracking.difficulty_tier(t),'tier_estimated':t.get('tier') is None and run_tracking.difficulty_tier(t) is not None,
@@ -173,7 +174,7 @@ def resume_plan(job, manifest, rows):
     if run_archive.is_archived(ROOT,manifest['id']):reason='Restore this archived run before resuming.'
     elif any(t.get('repeat',1)!=1 for t in manifest['expected']):reason='This historical repeat policy cannot be resumed. Start a new run.'
     elif job.get('state') not in ('error','cancelled','stopped'):reason='Only interrupted or cancelled runs can be resumed.'
-    elif job.get('results_reset'):reason='Selected results were reset. Prepare a targeted rerun with a fresh clock.'
+    elif job.get('results_reset'):reason='Results were reset. Start a new full-bank run with a fresh clock.'
     elif (job.get('elapsed_s') or 0)>=hour_score.WINDOW_S:reason='The one-hour scoring window is complete. Start a new run for another attempt.'
     elif job.get('hour_timing_unknown') or manifest.get('hour_timing_unknown'):reason='Active time was interrupted without a reliable end timestamp. Start a new run using this setup.'
     elif not missing and not question_rounds.enabled(manifest):reason='Every planned attempt is already complete.'
@@ -293,14 +294,7 @@ def stop_job(body):
         return {'ok':True,'job':job['id']}
 
 def start_repair(body):
-    with condition, evaluation_store.LOCK:
-        if shutting_down:raise ValueError('Restart the console before starting a repair.')
-        if running or queue:raise ValueError('Wait for active and queued runs to finish. Each repair starts manually after you change models.')
-        source=saved_manifest(body.get('job'))
-        job=repair_runs.create(ROOT,source,result_rows(),body,hourglass.BENCHMARK_VERSION)
-        run_editor.copy_setup(ROOT,source,job)
-        queue.append(job);condition.notify_all()
-        return job
+    raise ValueError('Targeted reruns are not supported. Start a new full-bank run; existing repair records remain available.')
 
 def reset_attempts(body):
     with condition, evaluation_store.LOCK:
@@ -558,17 +552,18 @@ def enqueue(body):
 def _enqueue_reviewed(body,document):
     model=body.get('model'); tids=body.get('tasks')
     if body.get('repeat') is not None and (type(body['repeat']) is not int or body['repeat']!=1):
-        raise ValueError('Each question runs once')
+        raise ValueError('Round execution is fixed by the benchmark rules; custom repeat counts are not supported.')
     if model not in [m.get('name') for m in document.get('models',[])]:raise ValueError('Choose a saved model.')
-    if not isinstance(tids,list) or not tids or any(not isinstance(t,str) for t in tids):raise ValueError('Choose at least one test.')
+    if not isinstance(tids,list) or not tids or any(not isinstance(t,str) for t in tids):raise ValueError('A run must contain the full installed question bank. Refresh and review again.')
     catalog={t['id']:t for t in task_catalog()}
     tids=list(dict.fromkeys(tids))
-    if any(t not in catalog for t in tids):raise ValueError('A selected test no longer exists. Refresh the library.')
+    if set(tids)!=set(catalog):raise ValueError('A run must contain the full installed question bank; subsets are not supported. Refresh and review again.')
     if body.get('task_bundles') is not None and body['task_bundles']!={t:catalog[t]['task_bundle_sha'] for t in tids}:
         raise ValueError('Question bundles changed after review. Refresh and review again.')
     bad=[t for t in tids if catalog[t]['issues']]
     if bad:raise ValueError('These tests need repair before running: '+', '.join(bad))
-    tids=ordered_tasks(list(catalog.values()),tids)
+    # Presentation sorting is never execution order. Derive it from the bank.
+    tids=ordered_tasks(list(catalog.values()),list(catalog))
     job={'round_policy':question_rounds.POLICY,'warmup_policy':run_warmup.POLICY,'scoring_policy':scoring_policy.NET,'id':uuid.uuid4().hex,'label':f'{model} · {len(tids)} tests','model':model,'tasks':tids,
          'repeat':1,'question_timeout_s':question_deadline.LIMIT_S,'question_timeout_policy':question_deadline.POLICY,'stop_after_wrong':None,'state':'pending','created':time.time(),'completed_tasks':0,'total_tasks':len(tids)}
     config=next(m for m in document['models'] if m['name']==model)

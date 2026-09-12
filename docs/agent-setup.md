@@ -1,6 +1,6 @@
 # Agent setup recipe
 
-For Hourglass 3.0.0, also read [inference profiles](inference-profiles.md) and [Issue for Agents](issues-for-agents.md). New configurations use native Pi model declarations. Record the actual backend/build, context and output capacities, optional thinking choice and any required route. The example is a format reference; verify its fields before using it. Preserve existing historical profiles unless the owner authorizes migration.
+For Hourglass 4.1.0, also read [inference profiles](inference-profiles.md) and [Issue for Agents](issues-for-agents.md). New configurations use native Pi model declarations. Record the actual backend/build, context and output capacities, optional thinking choice and any required route. The example is a format reference; verify its fields before using it. Preserve existing historical profiles unless the owner authorizes migration.
 
 Use a coding agent to perform this checklist in order. Your setup agent installs and configures Hourglass. The model being evaluated runs through the frozen Pi harness; it does not inherit your setup agent's context or tools.
 
@@ -31,7 +31,7 @@ python3 hourglass.py cert hello-world
 
 The installer refuses to overwrite an existing demo. Certification should report that the clean calculator passes and the deliberately broken version fails. It does not prove model compatibility.
 
-Launch `./start-hourglass.sh` from the owner's Terminal and leave it open. Use the UI's connection check, then run the **hello-world question only**, with the chosen model and one repeat. This small run is an installation test. Verify a real tool call, a final submission and a saved result, and inspect any reported request or harness error. It uses inference and writes local diagnostic artifacts.
+Launch `./start-hourglass.sh` from the owner's Terminal and use the UI's read-only connection check. For an owner-authorized installation diagnostic, run `python3 hourglass.py run hello-world --model SAVED_MODEL_NAME`, replacing the placeholder with the saved alias. This CLI invocation is not a timed benchmark or a comparable score. Verify a real tool call, a final submission and a saved result. It uses inference and writes local diagnostic artifacts; it is excluded from the Questions tab's saved-run statistics.
 
 Do not upgrade or regenerate the vendored Pi snapshot during setup. If its integrity check fails, inspect the mismatch and restore the expected release snapshot without overwriting unrelated user work. See [frozen Pi](frozen-pi.md).
 
@@ -39,12 +39,12 @@ Do not upgrade or regenerate the vendored Pi snapshot during setup. If its integ
 
 Follow [the question-authoring recipe](question-authoring-recipe.md). A setup demo does not establish benchmark quality. Keep private material in the ignored bank and audit locations, and register external private backups as explained in [private question versioning](private-question-bank.md) so that attempts cannot read them.
 
-Remove the demo from the timed question selection. Confirm every selected question is ready. Use one repeat, check the frozen order and question count, and record the exact model/server/hardware setup. Start the full evaluation through the UI; an individual `hourglass.py run` invocation does not enforce the evaluation hour.
+With the owner's approval, move the setup demo out of `tasks/` into a retained private backup before freezing the benchmark bank. Do not delete its evidence. Confirm every installed question is ready, check the rule-defined order and count, and record the model/server/hardware setup. Start the full evaluation through the UI. Every new benchmark uses the whole installed bank; there is no subset selection or custom repeat count.
 
 ## 5. Connect telemetry and hand back a verified installation
 
 Use [server telemetry](telemetry.md) to select a passive source for the actual endpoint. Merge its ignored configuration. Verify measured speed and request counts while inference is active when the backend exposes them. Label missing telemetry as unavailable, and state its scope. Never infer tokens from text length, streaming chunks or loaded-model counts.
 
-Give the owner the checkout path, start/stop commands, local UI address, configured model alias, exact configuration changes and backup locations. Report the demo's result and where its local evidence lives. Distinguish observed effective settings from user-reported or unknown values. Explain how to select their bank and begin a one-hour run.
+Give the owner the checkout path, start/stop commands, local UI address, configured model alias, exact configuration changes and backup locations. Report the demo's result and where its local evidence lives. Distinguish observed effective settings from user-reported or unknown values. Explain how to inspect the bank in Questions and begin a full-bank, one-hour run.
 
 Before any public commit, inspect the staged diff and run `python3 scripts/check_public_release.py`. Do not publish local configurations, bank files, traces, private question screenshots or private audit records.

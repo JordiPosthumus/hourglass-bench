@@ -206,7 +206,7 @@ def quadrants(reports, scope='same'):
         e=r['efficiency'];speed=e.get('answers_per_active_minute');radius=20*math.sqrt(speed/max_speed) if speed else 6
         px,py=x(e['median_output_tokens']),y(e['accuracy']);color=colors[i%len(colors)]
         rate=f'{speed:.2f}/min' if speed is not None else 'speed unavailable'
-        label=html.escape(f"{r.get('display_name',r['model'])} · {hardware_label(r)} · {e['accuracy']*100:.1f}% correct · {e['median_output_tokens']:,.0f} tokens · {rate} · n={e['scored_answers']} · {r['state']} · {report_charts.rules_label(r)}")
+        label=html.escape(f"{r.get('display_name',r['model'])} · {e['accuracy']*100:.1f}% correct · {e['median_output_tokens']:,.0f} tokens · {rate} · n={e['scored_answers']} · {r['state']}")
         out.append(f'<circle data-point="{i}" cx="{px}" cy="{py}" r="{radius}" fill="{color}" fill-opacity=".75" stroke="white" stroke-width="3"><title>{label}</title></circle>')
     for i,(point,box) in enumerate(zip(annotations,boxes)):out.append(report_charts.svg_label(point,box,i))
     if not points:out.append('<text x="460" y="280" text-anchor="middle">No complete output-token records for this comparison</text>')
@@ -228,8 +228,6 @@ def ranking(reports, scope='same'):
     for entry in entries:
         r=entry['report']
         entry['lines']=[(line,12,'#eaf0fa') for line in report_charts.wrap_text(r.get('display_name',r['model']),250,12)]
-        entry['lines'] += [(line,11,'#aebdd0') for line in report_charts.wrap_text(hardware_label(r),250,11)]
-        entry['lines'] += [(line,10,'#92a5b9') for line in report_charts.wrap_text(report_charts.rules_label(r),250,10)]
         if r.get('repeat_count',1)>1:entry['lines'].append((f'Mean of {r["repeat_count"]} completed runs',10,'#92a5b9'))
     angle=math.sqrt(.5)
     label_h=max((len(e['lines'])*16 for e in entries),default=32)
@@ -259,7 +257,7 @@ def ranking(reports, scope='same'):
         entry['bounds']=(min(xs),min(ys),max(xs)-min(xs),max(ys)-min(ys))
         label_bottom=max(label_bottom,max(ys))
     notes=['Bars show recorded total points. Partial and live runs are not extrapolated.']
-    notes.append('Compare the same bank, order and rules; labels disclose differences.')
+    notes.append('Compare the same bank, order and rules; details are in the run record.')
     if any(e['report'].get('clock_adjustment_seconds') for e in entries):notes.append('* Includes a disclosed clock adjustment.')
     footer_lines=[line for note in notes for line in report_charts.wrap_text(note,width-80,11)]
     footer_y=label_bottom+38;height=math.ceil(footer_y+len(footer_lines)*16+24)
@@ -278,7 +276,7 @@ def ranking(reports, scope='same'):
         r=entry['report'];value=entry['value'];center=entry['center']
         star='*' if r.get('clock_adjustment_seconds') else ''
         state=r.get('state','unknown').replace('_',' ')
-        title=r['model']+(' · '+r['display_name'] if r.get('display_name') and r['display_name']!=r['model'] else '')+' · '+hardware_label(r)+' · '+report_charts.rules_label(r)
+        title=r['model']+(' · '+r['display_name'] if r.get('display_name') and r['display_name']!=r['model'] else '')
         title+=f" · Measured score: {r['hourglass_score']:.2f} · {state}"
         score_attr='' if value is None else repr(value)
         out.append(f'<g data-rank="{rank}" data-model="{esc(r["model"],quote=True)}" data-score="{score_attr}"><title>{esc(title)}</title>')

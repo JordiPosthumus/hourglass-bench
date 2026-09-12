@@ -1,4 +1,4 @@
-import json,tempfile,time,unittest,types
+import json,tempfile,time,unittest,types,uuid
 from pathlib import Path
 from unittest.mock import patch
 import web,hourglass,evaluation_store as c,run_tracking as rt
@@ -21,11 +21,12 @@ class ResumeTests(unittest.TestCase):
         self.rows=[]
 
     def interrupted(self,repeat=1,n=2):
-        job=web.enqueue({'model':'model','tasks':[f'T{i:02d}' for i in range(n)]})
-        # These fixtures exercise the saved historical single-pass resume contract.
-        job.pop('round_policy',None)
-        manifest=web.saved_manifest(job['id']);manifest.pop('round_policy',None);c.write(self.root/'evaluations'/(job['id']+'.json'),manifest)
-        with web.condition:web.queue.remove(job)
+        # Construct historical evidence directly: new API runs cannot select subsets.
+        job={'id':uuid.uuid4().hex,'model':'model','tasks':[f'T{i:02d}' for i in range(n)],
+             'repeat':1,'state':'pending','created':0,'total_tasks':n,'completed_tasks':0,
+             'scoring_policy':web.scoring_policy.NET,'warmup_policy':web.run_warmup.POLICY,
+             'question_timeout_s':900,'question_timeout_policy':web.question_deadline.POLICY}
+        c.evaluation_manifest(self.root,job,hourglass.BENCHMARK_VERSION,self.cfg)
         job.update(state='error',started=100,ended=120,error='fixture error');web.done.append(job);c.update_evaluation(self.root,job)
         self.job=job;self.m=web.saved_manifest(job['id'])
         if repeat!=1:
