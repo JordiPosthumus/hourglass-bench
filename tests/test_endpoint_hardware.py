@@ -46,6 +46,6 @@ class EndpointHardwareTests(unittest.TestCase):
         self.assertEqual(p.read_text(),'not json')
     def test_stale_review_cannot_create_evaluation(self):
         body={'model':'Model A','tasks':['fixture'],'repeat':1,'hardware_revision':eh.revision({})};self.save()
-        with patch.object(web,'ROOT',self.root),patch.object(web,'task_catalog',return_value=[{'id':'fixture','issues':[]}]),patch.object(web,'ordered_tasks',return_value=['fixture']),patch.object(web.calibration,'evaluation_manifest') as create:
+        with patch.object(web,'ROOT',self.root),patch.object(web,'task_catalog',return_value=[{'id':'fixture','issues':[]}]),patch.object(web,'ordered_tasks',return_value=['fixture']),patch.object(web.evaluation_store,'evaluation_manifest') as create:
             with self.assertRaisesRegex(ValueError,'changed after review'):web.enqueue(body)
             create.assert_not_called()

@@ -43,7 +43,7 @@ def recover_receipt(root, manifest):
         if any(dt.datetime.fromisoformat(r['ts']).timestamp()>ended for r in rows):return None
         intervals[-1]['end']=ended
         recovered=copy.deepcopy(manifest)
-        recovered.setdefault('question_elapsed_s',{})[context['task']]=context.get('elapsed_before_s',0)+duration
+        recovered.setdefault('question_elapsed_s',{})[context.get('elapsed_key',context['task'])]=context.get('elapsed_before_s',0)+duration
         recovered.update(state='stopped',ended=ended,active_started=None,active_intervals=intervals,
                          hour_timing_unknown=False,elapsed_s=(manifest.get('repair') or {}).get('base_elapsed_s',0)+sum(p['end']-p['start'] for p in intervals),
                          current_task=context['task'],error=None,rc=130,stop_requested=False,
@@ -117,9 +117,10 @@ def recover(root, manifest):
         # conservative boundary; disclose the small extra startup charge.
         question_start = max([start] + [t for t in timestamps if start <= t <= attempt['started']])
         question_elapsed = recovered.setdefault('question_elapsed_s', {})
-        previous_question_seconds = question_elapsed.get(attempt['task'], 0)
+        elapsed_key = f"{attempt['task']}:{attempt.get('run',1)}" if manifest.get('round_policy') else attempt['task']
+        previous_question_seconds = question_elapsed.get(elapsed_key, 0)
         charged = ended - question_start
-        question_elapsed[attempt['task']] = previous_question_seconds + charged
+        question_elapsed[elapsed_key] = previous_question_seconds + charged
         recovered.update(state='stopped', ended=ended, active_started=None,
                          active_intervals=intervals, hour_timing_unknown=False,
                          elapsed_s=(manifest.get('repair') or {}).get('base_elapsed_s',0)+sum(p['end']-p['start'] for p in intervals),

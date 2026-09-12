@@ -1,27 +1,19 @@
-# Scoring: net-hour-v2
+# Scoring: total points
 
-New runs use net-hour-v2: an incorrect final answer costs one point per distinct question, and unsupported vision, timeout, or no final submission contributes zero. Explicit abstention is not offered. Historical scoring policies and original scores are retained.
+New evaluations use `net-hour-v3` and `total-points-v1`. Every correct attempt earns its frozen authored weight; every incorrect final answer loses one point. Unsupported vision, timeouts and unfinished attempts earn zero. A later correct answer does not erase an earlier penalty. There is no AUC, normalization, prediction or custom calibration.
 
-The main score awards fixed difficulty weights to distinct correctly completed questions at or before 3,600 active seconds. Charts use authored tiers 1–10 mapped linearly to 1–2 points; games use tiers 1–5 mapped linearly to 1–2; math uses advanced high school = 1, advanced undergraduate = 1.5, graduate = 2. Other or unlabeled questions earn 1 point. Raw correct counts remain alongside the weighted score. Weights are fixed independently of the selected bank and frozen in new run manifests. Historical manifests are enriched only from content matching their saved hash. These authored labels are provisional, not empirical calibration. The exact boundary is inclusive; later records are excluded even if shutdown takes an additional moment.
+The first pass uses the existing bank order. Each subsequent round visits the whole bank once, ordered by the latest attempt: wrong answers, unfinished questions, then correct answers. Within each group, longest duration first; ties retain original bank order. A fresh conversation and workspace isolate every attempt from previous answers and grading. Round order is persisted before execution and survives resume.
 
-The clock starts when the queued evaluation begins executing. It includes model initialization, thinking, tool use, grading, errors and retries. It excludes queue time and recorded pauses between resumes. Scores from old resumed runs without sufficient interval history are withheld rather than guessed.
+All rounds share the original inclusive 3,600-active-second clock. Each round attempt has 900 seconds, including tools and time spent before an interruption; resume does not reset that allowance. Queue time, recorded pauses and the separate unscored warm-up are excluded. There is no turn-count or consecutive-wrong-answer stop. Model context, output, thinking and server settings are preserved.
 
-Text and vision points add to the total. Wrong answers and execution errors are distinguished. Unfinished and unreached questions contribute zero without being presented as observed incorrect answers.
+Correct weights remain unchanged: charts tiers 1–10 map to 1–2 points, games tiers 1–5 map to 1–2, and math high school/undergraduate/graduate map to 1/1.5/2. Authored challenge weights and other sections retain their established rules. Text and vision subtotals add to total points. Reaching the bank’s end starts another round; it does not finalize the score early.
 
-Each question runs once per evaluation. Historical multi-attempt results retain their recorded scoring rules and are not rewritten.
+Historical evaluations retain their recorded execution and once-per-question award rules. Saved evidence and previously published snapshots are unchanged. New reports identify the metric and recorded policy; incompatible policies are not averaged.
 
-The UI shows an in-progress score while the hour is running. An early stopped run is partial unless all its questions finished. There is no extrapolation from early throughput. A model that completes the whole bank early receives its actual weighted score, with elapsed time retained as a diagnostic. If this creates a ceiling, expand your private bank and give the new bank a distinct scope.
+## Charts and history
 
-Questions run in repeated easy → medium → hard waves, rotating subjects within each band and skipping exhausted bands. Unknown difficulty follows classified questions. These authored labels are provisional; math education labels map to estimated scheduling tiers (1, 5, 9) when no numeric tier is supplied. See [the method: waves of questions](methodology.md), including the challenge insertion used by the private reference evaluation. The existing stop after 20 consecutive incorrect questions is retained and may end a run before one hour; such a score is partial.
+Visible tabs expose points over time, score ranking, accuracy/efficiency, throughput and speed comparison. The default chart is the recorded points-over-time step graph, with right-hand run labels and hover/focus highlighting. Rankings use recorded totals, never forecasts. Individual runs are shown by default; optional averaging only combines compatible completed runs.
 
-At the deadline the UI controller signals the benchmark process group, preserves completed attempts, and plays a system chime. The model server itself is not stopped. Each question has a 900-second active budget including tools and retries; expiry advances automatically. There are no separate bash or generation deadlines; there is no harness turn-count limit. Configured model output/context limits still apply.
+Archive/restore changes backed-up visibility metadata only. Archived runs are excluded from normal local results and comparisons but remain viewable and restorable. No answers, settings, logs or artifacts are deleted.
 
-For comparison, hold bank content and order, repeats, harness version, model configuration, and hardware constant or disclose their differences. Record server sampling settings when available. Hourglass is a measurement tool, not a shared standardized test set.
-
-## Publishing
-
-Use **Publish score** in Results to review aggregate JSON data, individual and combined SVG graphs, and a README. Select `owner/repository` and click **Publish these files to GitHub**. Install the GitHub CLI and authenticate with `gh auth login` first. The repository must already have a branch. Publication adds the reviewed aggregate files in a unique folder under `reports/` with a non-forced atomic commit; it never pushes the local working directory.
-
-Reports are served by the local controller under `/scores/`. Reports carry a bank/order/weight fingerprint and label unfinished runs as partial or in progress. No questions, answers, per-question IDs, raw traces, endpoints or credentials are exported. Hardware is frozen per run; model configuration disclosure is currently marked as not supplied.
-
-The comparison offers all historical versions or same-bank hardware filters. Completed equivalent repeats are averaged by default, with individual runs available separately. Live and partial runs retain their actual measured endpoints. See [run identity and comparisons](run-identity.md). Clearing a local run removes it from future comparisons; historical published snapshots remain intact.
+Use Record & publish score to review aggregate files before publishing. Public reports exclude question content, answer keys, per-question identifiers, endpoints, credentials and raw traces. Existing published snapshots remain immutable.

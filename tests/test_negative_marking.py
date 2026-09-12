@@ -8,8 +8,8 @@ class NegativeMarking(HourScoreTests):
   h=self.calculate({'scoring_policy':scoring_policy.NET},[row('a',1100,False),row('a',1200,False),row('b',1300,False,score_reason='unsupported_vision'),row('c',1400,False,score_reason='abstained')])
   self.assertEqual((h['weighted_points'],h['gross_points'],h['penalty_points'],h['abstained_questions'],h['unsupported_questions']),(-1,0,1,1,1))
   self.assertEqual(h['breakdown']['text']['weighted_points'],-1)
- def test_correct_repeat_supersedes_penalty(self):
-  h=self.calculate({'scoring_policy':scoring_policy.NET},[row('a',1100,False),row('a',1200,True),row('a',1300,False)])
+ def test_historical_correct_repeat_supersedes_penalty(self):
+  h=self.calculate({'scoring_policy':scoring_policy.SINGLE},[row('a',1100,False),row('a',1200,True),row('a',1300,False)])
   self.assertEqual((h['weighted_points'],h['incorrect_questions']),(1,0))
  def test_deadline_errors_and_no_submission(self):
   h=self.calculate({'scoring_policy':scoring_policy.NET},[row('a',4600,False),row('b',4601,False),row('c',1500,False,status='error'),row('c',1600,False,termination='stopped')])
@@ -17,9 +17,8 @@ class NegativeMarking(HourScoreTests):
  def test_old_runs_keep_gross(self):
   h=self.calculate({},[row('a',1100,False),row('b',1200,True)])
   self.assertEqual(h['weighted_points'],1);self.assertIsNone(h['net_points']);self.assertEqual(h['penalty_points'],0)
- def test_signed_auc_and_chart_bounds(self):
+ def test_signed_chart_bounds(self):
   curve=[{'seconds':0,'weighted':0},{'seconds':600,'weighted':2},{'seconds':1200,'weighted':-1},{'seconds':3600,'weighted':-1}]
-  self.assertEqual(report_charts.auc(curve,True)['point_minutes'],-20)
   svg=report_charts.progress_chart([{'weighted_points':-1,'curve':curve,'model':'fixture','state':'final'}])
   self.assertIn('Zero points',svg)
   import re

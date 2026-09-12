@@ -121,7 +121,7 @@ def handler(root,port,source_port,repo='',prefix=''):
                     files=score_report.build(root,job,state['results'],manifest)
                     reports=[json.loads(files['report.json'])];seen={(job['model'],reports[0]['machine_key'])}
                     for other in sorted(jobs,key=lambda j:j.get('created') or 0,reverse=True):
-                        if other['id']==jid or not other.get('started'):continue
+                        if other['id']==jid or other.get('archived') or not other.get('started'):continue
                         try:
                             saved=json.loads((root/'evaluations'/(other['id']+'.json')).read_text())
                             candidate=json.loads(score_report.build(root,other,state['results'],saved)['report.json'])
@@ -198,7 +198,7 @@ def server(root,port,source_port,repo=''):
     return ThreadingHTTPServer(('127.0.0.1',port),handler(root,port,source_port,repo))
 
 
-def start(root,source_port,repo=''):
+def start(root,source_port,repo='JordiPosthumus/hourglass'):
     try:s=server(root,source_port+20,source_port,repo)
     except OSError:return False
     threading.Thread(target=s.serve_forever,daemon=True).start();return True

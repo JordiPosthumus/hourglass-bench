@@ -1,8 +1,8 @@
 # Method: waves of questions
 
-The headline metric is `linear-auc-100-v1`: net-point AUC in active minutes divided by 0.3 times the frozen bank’s available weighted points. A score of 100 represents steady perfect weighted-point progress over one hour. See [the score definition](results-history.md#hourglass-score).
+Current headline metric: **total-points-v1**. New net-hour-v3 evaluations sum awards and penalties across all attempts within one hour. No AUC, normalization, forecast or calibration. After the first pass, whole-bank rounds use latest-attempt outcomes: wrong, unfinished, correct; slowest first within each group.
 
-Hourglass measures how much correct work an agent completes within one hour of active wall time. Questions arrive in a fixed sequence of difficulty waves, with subjects mixed throughout. The aim is to expose even an early portion of a run to different kinds of work and different difficulty levels.
+Hourglass Bench measures how much correct work an agent completes within one hour of active wall time. Questions arrive in a fixed sequence of difficulty waves, with subjects mixed throughout. The aim is to expose even an early portion of a run to different kinds of work and different difficulty levels.
 
 Difficulty labels describe the authored bank. They are provisional, not measured probabilities of success. A question that takes a long time may reveal hard reasoning, inefficient verification, slow inference, or a tool problem; duration alone cannot distinguish them.
 
@@ -42,23 +42,15 @@ These blocks are a way to describe the cadence, not separate timed rounds. Chall
 
 Each reference challenge has distinct pilot and held-out input variants, twelve answer choices, and two reference solving methods. Pilot model work is inspected for ambiguity, shortcuts and mistakes in the question. The scored input is held out from those pilots. This provides evidence of solvability; it does not establish uniform difficulty or freedom from every possible shortcut.
 
-**Implementation scope:** the public harness supports regular difficulty waves, challenge insertion after every four regular questions, and two-point challenge weights for user-authored challenge tasks. The public repository ships only the optional hello-world setup demonstration. The reference questions, inputs, answers and pilot traces remain private.
-
-## Repository discovery
-
-Version 2.7 inserts a selected repository discovery case after every eight questions of the existing sequence. Cases rotate Games → Hourglass → DSG, ordered by stable question ID within each source. This preserves the previous sequence, including challenge placement relative to its regular questions. Remaining discovery cases follow when a selected subset runs out of base questions. In the 135-question private bank, they occupy positions 9, 18, …, 135.
-
-Each case receives its own supplied repository and history in a fresh workspace. Discovery cases are text-and-tools questions. Their authored difficulty remains uncalibrated; they earn the existing default one point when correct, with the usual incorrect-answer penalty. Games, Hourglass and DSG subtotals are included in the text score. Source-grounded answer verification does not establish empirical difficulty or agreement across independent solvers.
-
-The public repository includes the ordering and subtotal support, not these questions, repositories or answer keys. A changed bank/order fingerprint keeps prior scores separate. No persistent question-level cross-model difficulty ledger or automatic weight fitting is currently implemented.
+**Implementation scope:** the public harness currently implements the regular difficulty waves. The challenge insertion and two-point challenge weight described here belong to the private version 2.2 reference installation and have not yet been ported to the public runtime. The public repository ships only the optional hello-world setup demonstration. The reference questions, inputs, answers and pilot traces remain private.
 
 ## One clock across all waves
 
 The full ordered run shares 3,600 active seconds. Starting a question or reaching a challenge does not reset the clock. Thinking, tool calls, initialization, grading, errors and retries consume the budget; recorded pauses between resumes do not.
 
-Each question has 900 active seconds total, including tools and retries; expiry advances to the next question. There is no agent-turn cap. A model may spend substantial time solving or checking a difficult question, leaving less time for later questions. That cost is part of the measurement. Configured model context and output limits still apply.
+Each question has a fifteen-minute total budget, bounded by the remaining one-hour run budget. There is no agent-turn cap. Configured model context and output limits still apply.
 
-Each distinct correct answer completed by the inclusive deadline earns its fixed authored weight, normally between one and two points; reference challenges earn two. Raw correct counts remain visible. Under net-hour-v2, an incorrect final answer costs one point; unfinished and unreached questions earn zero. Explicit abstention is not offered. Execution errors are recorded separately from incorrect answers. An early interrupted run is partial and is not extrapolated to a full hour. The existing stop after 20 consecutive incorrect answers can also end a run early.
+Each correct round attempt completed by the inclusive deadline earns its fixed authored weight, normally between one and two points; reference challenges earn two. Incorrect final answers lose one point each. Unfinished and unreached questions earn zero. Attempts are retained independently. Execution errors are recorded separately from incorrect answers. An early interrupted run is partial and is not extrapolated to a full hour. Consecutive incorrect answers do not stop a run.
 
 ## Reading and comparing results
 
@@ -67,3 +59,7 @@ The method measures useful work under a shared time budget, including the cost o
 Mixing difficulty and subjects improves the variety of the early sequence, but it does not give every model the same completed sample. Models that progress at different speeds reach different prefixes of the fixed order. Interpret scores together with elapsed time, completion counts, errors, token usage and the text/vision breakdown.
 
 For a comparison, hold bank content, exact order, repeat policy and scoring rules constant, and keep relevant harness, model and hardware settings equivalent or disclose their differences. New evaluations freeze their order and weights; resumed evaluations retain the saved sequence. Adding challenges creates a different bank and order fingerprint, so an older 100-question run should not be presented as directly equivalent to a new 120-question run.
+
+### Question budget (2.3.0)
+
+New runs use a 15-minute total question budget within the existing one-hour active run budget. Timeouts earn zero, are shown separately, and advance automatically. Answer accuracy excludes timeouts. Saved completed repeats retain their results. Interrupted tool traces remain available. The outer one-hour deadline always takes precedence. Live decode speed comes from passive server-log samples; it excludes tool and prefill time and cannot by itself establish contention.

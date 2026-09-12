@@ -2,19 +2,19 @@ import copy,datetime as dt,json,subprocess,tempfile,unittest
 from pathlib import Path
 from collections import deque
 from unittest.mock import patch
-import calibration,hour_score,web,run_editor,results_history,report_charts,score_report,scoring_policy
+import evaluation_store,hour_score,web,run_editor,results_history,report_charts,score_report,scoring_policy
 
 class AuditFixes(unittest.TestCase):
  def test_snapshot_is_independent_and_integrity_checked(self):
   with tempfile.TemporaryDirectory() as directory:
    root=Path(directory);config={'name':'fixture','model':'fixture','base_url':'http://fixture.invalid/v1','max_tokens':262144,'extra':{'top_p':.91,'secret_fixture':'PRIVATE'}}
-   manifest={'id':'fixture','config_hash':calibration.digest(config),'model_config_snapshot':copy.deepcopy(config)}
+   manifest={'id':'fixture','config_hash':evaluation_store.digest(config),'model_config_snapshot':copy.deepcopy(config)}
    config['max_tokens']=12;config['extra']['top_p']=.1
-   path=calibration.frozen_config_path(root,manifest,config)
+   path=evaluation_store.frozen_config_path(root,manifest,config)
    saved=json.loads(path.read_text())['models'][0]
    self.assertEqual(saved['max_tokens'],262144);self.assertEqual(saved['extra']['top_p'],.91)
    path.write_text('{}')
-   with self.assertRaisesRegex(ValueError,'changed'):calibration.frozen_config_path(root,manifest,config)
+   with self.assertRaisesRegex(ValueError,'changed'):evaluation_store.frozen_config_path(root,manifest,config)
  def test_recovery_withholds_unknown_time_and_preserves_backup(self):
   with tempfile.TemporaryDirectory() as directory:
    root=Path(directory);(root/'evaluations').mkdir()

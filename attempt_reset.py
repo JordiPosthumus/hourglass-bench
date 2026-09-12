@@ -5,8 +5,6 @@ import hashlib
 import json
 import uuid
 import repair_runs
-import calibration
-import model_scale
 from pathlib import Path
 
 
@@ -57,21 +55,13 @@ def reset(root, body):
                 doc=json.loads(original);doc['results_reset']=record['id'];manifests.append((path,doc))
         (backup/'removed-results.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in removed))
         (backup/'reset.json').write_text(json.dumps(record,indent=2))
-        for name in ('calibration.json','model-scale.json','leaderboard.md','frontier.md'):
+        for name in ('leaderboard.md','frontier.md'):
             path=root/name
             if path.exists():(backup/name).write_bytes(path.read_bytes())
         # Ledger is durable before removing index rows, so crash recovery cannot resurrect them.
         tmp=ledger.with_suffix('.tmp');tmp.write_text(json.dumps(state['history']+[record],indent=2));tmp.replace(ledger)
         for path,doc in manifests:
             tmp=path.with_suffix('.reset.tmp');tmp.write_text(json.dumps(doc,indent=2));tmp.replace(path)
-        doc=calibration.read(root/'calibration.json',{'schema_version':1,'scopes':{}})
-        changed=False
-        for scope in doc['scopes'].values():
-            refs=[r for r in scope['references'] if r['evaluation_id'] not in jobs]
-            if len(refs)!=len(scope['references']):
-                scope.update(references=refs,revision=uuid.uuid4().hex,fit=calibration.fit(refs));changed=True
-        if changed:calibration.save_document(root,doc)
-        for jid in jobs:model_scale.remove_reference(root,{'evaluation_id':jid},missing_ok=True)
         kept=[]
         for line in data.splitlines(keepends=True):
             try: row=json.loads(line)

@@ -67,7 +67,7 @@ import web
 root=pathlib.Path(sys.argv[1]);web.ROOT=root
 job={'id':'active'};web.running[:]=[job]
 web.queue=deque([{'id':'queued'}]);web.done=deque()
-web.calibration.update_evaluation=lambda root,j:(root/(j['id']+'.json')).write_text(__import__('json').dumps(j))
+web.evaluation_store.update_evaluation=lambda root,j:(root/(j['id']+'.json')).write_text(__import__('json').dumps(j))
 class Server:
  def __init__(self):self.finished=threading.Event()
  def serve_forever(self):

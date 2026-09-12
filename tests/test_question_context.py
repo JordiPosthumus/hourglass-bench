@@ -19,7 +19,7 @@ class ContextTests(unittest.TestCase):
     def test_timeline_excludes_pauses_and_includes_retries(self):
         job={'id':'fixture','state':'running','started':100,'current_task':'b','active_intervals':[{'start':100,'end':130},{'start':300,'end':None}]}
         manifest={'id':'fixture','expected':[{'task':'a','task_sha':'sha','repeat':1},{'task':'b','task_sha':'sha','repeat':1}]}
-        entries={'a':{'task_sha':'sha','summary':'Add two numbers using a calculator'},'b':{'task_sha':'sha','summary':'Sort colored blocks into matching boxes'}}
+        entries={'a':{'task_sha':'sha','summary':'Count line crossings across two panels'},'b':{'task_sha':'sha','summary':'Choose camera coverage around a planet'}}
         rows=[row('a',120),row('b',125,status='error',solved=False)]
         result=question_context.timeline(job,manifest,rows,entries,320)
         self.assertEqual(result['end_s'],50)
@@ -37,7 +37,7 @@ class ContextTests(unittest.TestCase):
 
     def test_stale_or_malformed_summaries_are_not_attached_to_other_versions(self):
         expected={'task':'a','task_sha':'correct'}
-        for entry in ({'task_sha':'stale','summary':'Add two numbers using a calculator'},[],{'task_sha':'correct','summary':'Too short'}):
+        for entry in ({'task_sha':'stale','summary':'Count line crossings across two panels'},[],{'task_sha':'correct','summary':'Too short'}):
             self.assertEqual(question_context.summary({'a':entry},expected),'Summary unavailable for this question version')
 
     def test_summary_catalogue_matches_every_available_question(self):
@@ -49,12 +49,12 @@ class ContextTests(unittest.TestCase):
             self.assertTrue(5<=len(entry['summary'].split())<=7)
             self.assertEqual(entry['task_sha'],hashlib.sha256(task.read_bytes()).hexdigest()[:16])
 
-    def test_plot_height_stays_fixed_when_models_multiply(self):
+    def test_plot_allocates_room_for_all_run_labels(self):
         base={'model':'model','weighted_points':1,'state':'partial','curve':[{'seconds':0,'weighted':0},{'seconds':600,'weighted':1}]}
         two=ET.fromstring(report_charts.progress_chart([base]*2,legend=False))
         forty=ET.fromstring(report_charts.progress_chart([base]*40,legend=False))
-        self.assertEqual(two.attrib['height'],forty.attrib['height'])
-        self.assertEqual(len(forty.findall('.//{http://www.w3.org/2000/svg}polyline')),40)
+        self.assertGreater(int(forty.attrib['height']),int(two.attrib['height']))
+        self.assertEqual(len(forty.findall('.//{http://www.w3.org/2000/svg}g[@data-series]')),40)
         self.assertEqual(len(set(report_charts.color_for(i) for i in range(40))),40)
 
     def test_public_exports_do_not_include_local_question_context(self):

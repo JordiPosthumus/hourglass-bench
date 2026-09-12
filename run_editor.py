@@ -174,10 +174,10 @@ def reuse_setup(root,manifest):
 
 
 def initial_identity(root,config):
-    import calibration
+    import evaluation_store
     import hardware_records
     manifest={'id':'preview','model':config['name'],'model_id':config['model'],
-              'config_hash':calibration.digest(config),'model_config_snapshot':config,
+              'config_hash':evaluation_store.digest(config),'model_config_snapshot':config,
               'hardware':hardware_records.capture(root,config)}
     prior=reusable_setup(root,manifest)
     values=dict((prior or {}).get('values',{}))

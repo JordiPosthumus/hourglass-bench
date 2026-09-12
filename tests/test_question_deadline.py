@@ -16,7 +16,7 @@ import live_tps
 FIXTURE='''import json,os,sys,time
 from pathlib import Path
 root=Path.cwd(); tid=sys.argv[2]
-indices=[1]
+indices=[int(os.environ.get('HOURGLASS_ATTEMPT_NUMBER','1'))]
 for repeat in indices:
  state={'task':tid,'run':repeat,'run_id':tid+str(repeat),'started':time.time()}
  Path(os.environ['HOURGLASS_ATTEMPT_CHECKPOINT']).write_text(json.dumps(state))
@@ -31,17 +31,20 @@ for repeat in indices:
 '''
 
 class QuestionDeadlineTests(unittest.TestCase):
- def exercise(self, tasks=('a','b'), used=None, hour_used=0, question_limit=.25):
+ def exercise(self, tasks=('a','b'), used=None, hour_used=0, question_limit=.25, cycling=False):
   with tempfile.TemporaryDirectory() as directory:
    root=Path(directory);(root/'hourglass.py').write_text(FIXTURE);(root/'results').mkdir()
    expected=[{'task':t,'repeat':1,'task_sha':'fixture'} for t in tasks]
-   manifest={'id':'fixture','expected':expected,'model_config_snapshot':{},'config_hash':web.calibration.digest({}),'scoring_policy':'net-hour-v2'}
+   manifest={'id':'fixture','expected':expected,'model_config_snapshot':{},'config_hash':web.evaluation_store.digest({}),'scoring_policy':'net-hour-v2'}
    condition=threading.Condition();done=deque()
    job={'id':'fixture','tasks':list(tasks),'model':'fixture','state':'pending','elapsed_s':hour_used,'question_timeout_s':question_limit,'question_elapsed_s':used or {}}
+   if cycling:
+    job['round_policy']=manifest['round_policy']=web.question_rounds.POLICY
+    job['scoring_policy']=manifest['scoring_policy']=web.scoring_policy.NET
    def rows():
     path=root/'results/results.jsonl'
     return [json.loads(l) for l in path.read_text().splitlines()] if path.exists() else []
-   patches=[mock.patch.object(web,'ROOT',root),mock.patch.object(web,'LOGS',root/'logs'),mock.patch.object(web,'queue',deque([job])),mock.patch.object(web,'running',[]),mock.patch.object(web,'done',done),mock.patch.object(web,'condition',condition),mock.patch.object(web,'worker_stop',False),mock.patch.object(web,'result_rows',side_effect=rows),mock.patch.object(web,'saved_manifest',return_value=manifest),mock.patch.object(web.calibration,'update_evaluation'),mock.patch.object(web.hour_deadline,'chime')]
+   patches=[mock.patch.object(web,'ROOT',root),mock.patch.object(web,'LOGS',root/'logs'),mock.patch.object(web,'queue',deque([job])),mock.patch.object(web,'running',[]),mock.patch.object(web,'done',done),mock.patch.object(web,'condition',condition),mock.patch.object(web,'worker_stop',False),mock.patch.object(web,'result_rows',side_effect=rows),mock.patch.object(web,'saved_manifest',return_value=manifest),mock.patch.object(web.evaluation_store,'update_evaluation'),mock.patch.object(web.hour_deadline,'chime')]
    for p in patches:p.start()
    thread=threading.Thread(target=web.worker);started=time.monotonic()
    try:
@@ -64,6 +67,14 @@ class QuestionDeadlineTests(unittest.TestCase):
   self.assertEqual([(r['task'],r['run'],r['status']) for r in rows],[('a',1,'timeout'),('b',1,'completed')])
   self.assertLess(elapsed,1.5);self.assertGreaterEqual(job['question_elapsed_s']['a'],.24)
   self.assertFalse(run_tracking.missing_repeats({'expected':[{'task':'a','repeat':3}]},rows,'a'))
+
+ def test_real_processes_repeat_bank_and_timeout_each_round_under_original_hour(self):
+  job,rows,elapsed=self.exercise(hour_used=3599.1,question_limit=.09,cycling=True)
+  self.assertEqual(job['stop_reason'],'hour_limit');self.assertLess(elapsed,2)
+  self.assertTrue(any(r['task']=='a' and r['run']==2 and r['status']=='timeout' for r in rows),rows)
+  self.assertTrue(any(r['task']=='b' and r['run']==2 and r['status']=='completed' for r in rows),rows)
+  self.assertEqual([(r['task'],r['run']) for r in rows[:4]],[('a',1),('b',1),('a',2),('b',2)])
+  self.assertIn('a:1',job['question_elapsed_s']);self.assertIn('a:2',job['question_elapsed_s'])
 
  def test_resume_does_not_reset_question_clock(self):
   job,rows,elapsed=self.exercise(tasks=('a',),used={'a':.22})

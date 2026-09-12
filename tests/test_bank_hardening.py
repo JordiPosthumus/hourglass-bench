@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
-import calibration
+import evaluation_store
 import hardware_records
 import option_layout
 import run_naming
@@ -23,7 +23,7 @@ class BankHardeningTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);p=root/'tasks/t';p.mkdir(parents=True);(p/'task.json').write_text('{"repeat":1}');(p/'chart.png').write_bytes(b'original')
             job={'id':'run','model':'fixture','tasks':['t'],'repeat':1,'created':0,'state':'pending'}
-            manifest=calibration.evaluation_manifest(root,job,'test',{'model':'fixture'})
+            manifest=evaluation_store.evaluation_manifest(root,job,'test',{'model':'fixture'})
             frozen=root/manifest['task_snapshot']/'t';(p/'chart.png').write_bytes(b'changed')
             task_identity.verify(frozen,manifest['expected'][0])
             with self.assertRaises(ValueError):task_identity.verify(p,manifest['expected'][0])

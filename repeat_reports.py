@@ -36,8 +36,6 @@ def average(reports):
         result['curve']=[{'seconds':t,**{field:statistics.mean(value(r,t,field,before) for r in members) for field in ('weighted','correct')}} for t in times for before in (True,False)]
         for field in ('breakdown','timeouts','run_date'):result.pop(field,None)
         result['active_seconds']=3600
-        result['auc']=report_charts.auc(result['curve'],final=True)
-        result['auc']['scoring_policy']=result['scoring']
         result['efficiency']={'token_data_complete':False}
         result['aggregation']='Arithmetic mean of completed equivalent runs; individual runs retained.'
         output.append(result)

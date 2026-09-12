@@ -6,7 +6,7 @@ This guide is for future maintainers and agents. Read the repository's working a
 
 Read [Issue for Agents](issues-for-agents.md), [the replayable output-space patch](../backend-patches/output-space/README.md), [server specifics](server-specifics-guide.md) and [inference profiles](inference-profiles.md) before changing a backend. The patch helper checks exact source hashes, backs up changes and supplies rollback; rebuilding a deployment still requires preserving its existing image, pins, kernels, launch flags and prerequisite patches. Validate complete prompt handling, intentional small limits and a real cold-to-warm cache hit.
 
-Hourglass 3.0.0 uses native Pi declarations for new profiles; historical profiles retain their saved behavior. The headline score is independently versioned as `linear-auc-100-v1`. [The scoring specification](results-history.md#hourglass-score) defines the scale and separates live forecasts from measured exports.
+Hourglass 4.0.0 uses native Pi declarations for new profiles; historical profiles retain their saved behavior. The headline metric is `total-points-v1`; see [scoring](scoring.md). Calibration and forecasts are removed. Frozen evaluation storage lives in evaluation_store.py.
 
 ## Safe model updates
 
@@ -24,7 +24,7 @@ The normal launcher is `./start-hourglass.sh`. `HOURGLASS_PORT` chooses a loopba
 
 `weighted-hour-v1` awards fixed difficulty weights once per distinct correctly completed question: charts tier 1–10 maps linearly to 1–2, games tier 1–5 to 1–2, and math high school/undergraduate/graduate to 1/1.5/2. Other or unlabeled questions earn 1. Raw correct counts remain visible. Weights are independent of the selected bank and frozen in new manifests; historical enrichment requires a matching content hash. Authored labels are provisional rather than empirically calibrated difficulty.
 
-`hour-v1` defines an inclusive 3,600-active-second completion boundary. Thinking, tools, initialization, grading and retries normally count; pauses between resumes do not. Late answers do not count. Partial runs are not extrapolated. Twenty consecutive incorrect answers can end a run early.
+`hour-v1` defines an inclusive 3,600-active-second completion boundary. Thinking, tools, initialization, grading and retries normally count; pauses between resumes do not. Late answers do not count. Partial runs are not extrapolated. Consecutive wrong answers do not stop a run.
 
 The native adapter has no turn-count cap. Do not restore a diagnostic `maxTurns` abort. The global hour limit remains intentional. Keep execution changes and scoring-policy changes separately versioned and documented.
 
@@ -168,8 +168,8 @@ Passive telemetry adds MTPLX, oMLX, vLLM, SGLang, llama.cpp and explicitly selec
 
 ## Run outcome sounds
 
-A run error or consecutive-wrong-answer stop plays the bundled 3.23-second “booo booo womp womp womp” cue once. Individual wrong answers and question timeouts do not trigger it; manual stop/cancellation is silent. Normal completion and the one-hour boundary keep the existing Glass chime. Audio plays asynchronously on the controller’s Mac and cannot block result persistence. See [sound source and generation](../sounds/README.md).
+A run execution error plays the bundled 3.23-second “booo booo womp womp womp” cue once. Individual wrong answers and question timeouts do not trigger it; manual stop/cancellation is silent. Normal completion and the one-hour boundary keep the existing Glass chime. Audio plays asynchronously on the controller’s Mac and cannot block result persistence. See [sound source and generation](../sounds/README.md).
 
 An already-running older controller can use `python3 hour_deadline.py --failures-only --base-url http://127.0.0.1:4534` to add failure audio without a restart. This temporary observer reads state only, ignores existing history, distinguishes resumed attempts and allows only one observer per checkout/base URL. It exits when the restarted controller advertises built-in failure audio.
 
-New evaluations execute each question once. Keep this invariant in the UI, API, runner and generators. Preserve historical manifests and results; cleanup requires separate owner authorization.
+New evaluations repeat whole-bank rounds inside the original hour. First pass unchanged; later rounds use latest-attempt wrong, unfinished and correct groups, each slowest first. Every attempt counts independently. Preserve historical manifests and results.

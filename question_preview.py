@@ -53,7 +53,8 @@ def image_file(root, tid, name, manifest=None):
 def for_run(root, manifest, tid, repeat):
     root = Path(root).resolve()
     expected = next((item for item in manifest.get('expected', []) if item['task'] == tid), None)
-    if expected is None or not isinstance(repeat, int) or not 1 <= repeat <= expected['repeat']:
+    limit=manifest.get('round_number',1) if manifest.get('round_policy') else (expected or {}).get('repeat',1)
+    if expected is None or type(repeat) is not int or not 1 <= repeat <= limit:
         raise ValueError('Question or repeat is outside this run.')
     directory = task_directory(root, manifest, tid)
     raw = (directory/'task.json').read_bytes()
@@ -75,6 +76,7 @@ def for_run(root, manifest, tid, repeat):
 
 
 def active_repeat(root, manifest, tid):
+    if manifest.get('round_policy'):return manifest.get('round_number',1)
     try:
         checkpoint = json.loads((Path(root)/'logs'/f"attempt-{manifest['id']}.json").read_text())
     except (OSError, ValueError):

@@ -45,14 +45,14 @@ def dependencies(root, jid):
 
 
 def frozen_config(root, source):
-    import calibration
+    import evaluation_store
     config=source.get('model_config_snapshot')
     if config is None:
         sidecar=Path(root)/'evaluations'/(source['id']+'.model.json')
         path=sidecar if sidecar.exists() else Path(root)/'models.json'
-        try:config=next((c for c in json.loads(path.read_text()).get('models',[]) if c.get('name')==source['model'] and calibration.digest(c)==source.get('config_hash')),None)
+        try:config=next((c for c in json.loads(path.read_text()).get('models',[]) if c.get('name')==source['model'] and evaluation_store.digest(c)==source.get('config_hash')),None)
         except (OSError,ValueError):config=None
-    if not config or calibration.digest(config)!=source.get('config_hash'):raise ValueError('The original frozen model settings cannot be verified.')
+    if not config or evaluation_store.digest(config)!=source.get('config_hash'):raise ValueError('The original frozen model settings cannot be verified.')
     return copy.deepcopy(config)
 
 
@@ -72,7 +72,7 @@ def question_sources(root,source):
     return sources,bundles
 
 def plan(root, source, rows, tasks=None):
-    import calibration,run_tracking
+    import evaluation_store,run_tracking
     root=Path(root)
     if source.get('state') in ('pending','running'):raise ValueError('Finish the original run before reviewing its repair.')
     if source.get('repair'):raise ValueError('Choose the original run to prepare another repair.')
@@ -115,7 +115,7 @@ def plan(root, source, rows, tasks=None):
     order=[t for t in source['order'] if t in selected]+[t for t in source['order'] if t not in selected]
     retained_view=[{**r,'evaluation_id':'preview'} for r in retained]
     continuation=[t for t in source['order'] if t not in selected and run_tracking.missing_repeats(source,retained_view,t)]
-    revision=calibration.digest({'source':source,'rows':raw,'question_bundles':bundles})
+    revision=evaluation_store.digest({'source':source,'rows':raw,'question_bundles':bundles})
     return {'source_evaluation_id':source['id'],'model':source['model'],'revision':revision,'candidates':candidates,'tasks':[t for t in source['order'] if t in selected],
             'question_sources':sources,'question_bundles':bundles,'source_elapsed_s':elapsed,'refunded_s':refunded,'base_elapsed_s':base,'remaining_s':3600-base,'continuation':continuation,'order':order,'retained':retained,
             'requested':{k:config.get(k) for k in ('model','base_url','context_window','max_tokens','reasoning')},'note':NOTE}
@@ -130,7 +130,7 @@ def create(root, source, rows, body, version):
 
 
 def _create(root, source, rows, body, version):
-    import calibration,diagnostics
+    import evaluation_store,diagnostics
     if any(t.get('repeat',1)!=1 for t in source['expected']):
         raise ValueError('Start a new run; each question now runs once.')
     p=plan(root,source,rows,body.get('tasks'))
@@ -138,8 +138,8 @@ def _create(root, source, rows, body, version):
     if not p['tasks'] or p['remaining_s']<=0:raise ValueError('Select at least one question with recorded time to replace.')
     stamp=dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
     backup=Path(root)/'backups'/('repair-'+stamp);backup.mkdir(parents=True)
-    calibration.write(backup/'original-evaluation.json',source)
-    calibration.write(backup/'repair-plan.json',p)
+    evaluation_store.write(backup/'original-evaluation.json',source)
+    evaluation_store.write(backup/'repair-plan.json',p)
     index=Path(root)/'results/results.jsonl'
     if index.exists():(backup/'results-before.jsonl').write_bytes(index.read_bytes())
     jid=uuid.uuid4().hex
@@ -162,6 +162,6 @@ def _create(root, source, rows, body, version):
     job.update(id=jid,label=source['model']+' · repaired run',repair=repair,benchmark_version=version,diagnostic_isolation=diagnostics.POLICY,
                order=p['order'],tasks=p['order'],created=time.time(),state='pending',started=None,ended=None,elapsed_s=p['base_elapsed_s'],active_started=None,active_intervals=[],
                legacy_time_match=False,question_elapsed_s={k:v for k,v in source.get('question_elapsed_s',{}).items() if k not in p['tasks']},
-               total_tasks=len(p['order']),completed_tasks=0,scope=calibration.digest({'source':source.get('scope'),'repair':POLICY,'tasks':p['tasks']}))
-    calibration.write(Path(root)/'evaluations'/(jid+'.json'),job)
+               total_tasks=len(p['order']),completed_tasks=0,scope=evaluation_store.digest({'source':source.get('scope'),'repair':POLICY,'tasks':p['tasks']}))
+    evaluation_store.write(Path(root)/'evaluations'/(jid+'.json'),job)
     return job

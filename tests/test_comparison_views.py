@@ -11,7 +11,7 @@ class ComparisonViews(unittest.TestCase):
   self.assertEqual(len(json.loads(score_report.comparison(reports)['comparison.json'])['reports']),1)
   self.assertEqual(len(json.loads(score_report.comparison(reports,'all')['comparison.json'])['reports']),2)
   svg=score_report.ranking(reports,'all')['ranking.svg']
-  self.assertLess(svg.index('Spark 2'),svg.index('Mac &amp; desktop'));self.assertNotIn('Exclude',svg);self.assertIn('0.0',svg);self.assertIn('in_progress',svg)
+  self.assertLess(svg.index('Spark 2'),svg.index('Mac &amp; desktop'));self.assertNotIn('Exclude',svg);self.assertIn('0.0',svg);self.assertIn('in progress',svg)
  def test_hardware_string_and_legacy_identity(self):
   with tempfile.TemporaryDirectory() as d:
    root=Path(d);cfg={'base_url':'http://server/v1','hardware':'Spark'}

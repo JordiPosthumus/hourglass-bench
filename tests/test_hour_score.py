@@ -71,32 +71,16 @@ class HourScoreTests(unittest.TestCase):
         self.assertEqual(r['remaining_s'],3600)
 
 
-class CalibratedScoreTests(unittest.TestCase):
+class TotalScoreTests(unittest.TestCase):
     calculate = HourScoreTests.calculate
-    def test_reference_midpoint_and_early_finish(self):
-        # Equal area to a continuous linear ramp from 0 to W over the hour.
-        r=self.calculate({'state':'completed','ended':2800},[row(t,2800) for t in 'abc'])
-        self.assertEqual(r['hourglass_score'],100)
-        self.assertEqual(r['total_available_points'],3)
-        self.assertEqual(r['score_denominator_point_seconds'],54)
-        fast=self.calculate({'state':'completed','ended':1900},[row(t,1900) for t in 'abc'])
-        self.assertEqual(fast['hourglass_score'],150)
-        immediate=self.calculate({'state':'completed','ended':1000},[row(t,1000) for t in 'abc'])
-        self.assertEqual(immediate['hourglass_score'],200)
-
-    def test_signed_area_retries_and_pauses(self):
-        job={'state':'stopped','ended':12800,'scoring_policy':'net-hour-v2',
-             'active_intervals':[{'start':1000,'end':1900},{'start':10100,'end':12800}]}
-        r=self.calculate(job,[row('a',1900,False),row('a',11000),row('a',12000),row('b',12800,False)])
-        # a: -1 for 900 active seconds, then +1 for 1800. b at deadline adds no area.
-        self.assertEqual(r['auc_point_seconds'],900)
-        self.assertAlmostEqual(r['hourglass_score'],16.666667)
-
-    def test_live_area_not_extrapolated_and_unavailable_withheld(self):
-        r=self.calculate({},[row('a',1600)],2200)
-        self.assertEqual(r['auc_point_seconds'],600)
-        self.assertAlmostEqual(r['hourglass_score'],11.111111)
-        self.assertEqual(r['state'],'in_progress')
-        r=self.calculate({'results_reset':'reset'},[row('a',1600)],2200)
-        self.assertIsNone(r['hourglass_score'])
-        self.assertIsNone(r['auc_point_seconds'])
+    def test_same_work_has_same_total_regardless_of_completion_time(self):
+        for ended in (1000,1900,2800):
+            h=self.calculate({'state':'completed','ended':ended},[row(t,ended) for t in 'abc'])
+            self.assertEqual(h['hourglass_score'],3)
+            self.assertNotIn('auc_point_seconds',h)
+    def test_new_round_attempts_accumulate_and_do_not_erase_mistakes(self):
+        h=self.calculate({'scoring_policy':'net-hour-v3','round_policy':'whole-bank-slowest-wrong-first-v1'},
+                         [row('a',1100,False,run=1),row('a',1200,True,run=2),row('a',1300,True,run=3)],1400)
+        self.assertEqual(h['hourglass_score'],1)
+        self.assertEqual(h['points'],2);self.assertEqual(h['penalty_points'],1)
+        self.assertEqual(h['state'],'in_progress')

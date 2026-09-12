@@ -47,11 +47,11 @@ class LegacyHarnessAndScoringTests(unittest.TestCase):
             self.assertTrue(hourglass.vision_rejection(msg))
         for msg in ['connection refused', 'invalid image format', 'context length exceeded', 'tools not supported', 'model not found']:
             self.assertFalse(hourglass.vision_rejection(msg))
-    def test_early_stop_records_zero_without_workspace_or_request(self):
+    def test_obsolete_stop_environment_cannot_skip_a_question(self):
         self.task()
-        with patch.dict(os.environ,{'HOURGLASS_SKIP_REASON':'five_wrong_in_row'}),patch.object(hourglass,'build',side_effect=AssertionError('must not build')):
-            self.run_mock([AssertionError('must not call model')])
-        r=hourglass._rows()[0];self.assertEqual(r['score_reason'],'five_wrong_in_row');self.assertFalse(r['solved']);self.assertEqual(r['duration_s'],0)
+        with patch.dict(os.environ,{'HOURGLASS_SKIP_REASON':'five_wrong_in_row','HOURGLASS_STOP_AFTER_WRONG':'20'}):
+            self.run_mock([self.answer()])
+        r=hourglass._rows()[0];self.assertTrue(r['solved']);self.assertNotIn('stop_after_wrong',r)
     def test_runner_rejects_multiple_attempts(self):
         self.task();args=self.args();args.repeat=3;args.repeat_indices='2'
         with patch.object(hourglass,'chat') as call,self.assertRaisesRegex(ValueError,'runs once'):hourglass.cmd_run(args)
@@ -139,6 +139,7 @@ class LegacyHarnessAndScoringTests(unittest.TestCase):
 
 class WebTests(unittest.TestCase):
     def setUp(self):
+        warmup=patch.object(web.run_warmup,'run',return_value={'status':'completed','duration_s':0});warmup.start();self.addCleanup(warmup.stop)
         sound=patch.object(web.hour_deadline,'chime');sound.start();self.addCleanup(sound.stop)
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)
         self.patches=[patch.object(web,'ROOT',self.root),patch.object(web,'TASKS',self.root/'tasks'),patch.object(web,'RESULTS',self.root/'results'),patch.object(web,'LOGS',self.root/'logs')]
@@ -178,7 +179,7 @@ class WebTests(unittest.TestCase):
                {'id':'M3','tier':None,'level':'graduate','section':'math'}, {'id':'C9','tier':9,'section':'chart'}]
         self.assertEqual(web.ordered_tasks(tasks,[t['id'] for t in tasks]),['C1','M2','C9','G1','M3','M1'])
         self.assertEqual([web.run_tracking.difficulty_tier(t) for t in tasks],[1,1,1,5,9,9])
-    def test_twenty_wrong_stop_and_correct_answer_reset(self):
+    def test_more_than_twenty_wrong_answers_do_not_skip_questions(self):
         for correct_at in [None,19]:
             with web.condition:web.queue.clear();web.running.clear();web.done.clear();web.worker_stop=False
             tasks=[]
@@ -186,27 +187,28 @@ class WebTests(unittest.TestCase):
                 tid=f'T{i:02d}';tasks.append(tid);p=web.TASKS/tid;p.mkdir(exist_ok=True)
                 (p/'task.json').write_text(json.dumps({'id':tid,'kind':'mcq','prompt':'fixture','options':[{'id':'001','text':'a'},{'id':'002','text':'b'}],'answer':'001'}))
             job=web.enqueue({'model':self.model,'tasks':tasks,'repeat':1});rows=[];calls=[]
+            job['stop_after_wrong']=20  # Historical metadata cannot re-enable the removed policy.
             class Proc:
                 def __init__(self,cmd,**kwargs):
-                    tid=cmd[cmd.index('run')+1];skip=kwargs['env']['HOURGLASS_SKIP_REASON'];calls.append(skip)
+                    tid=cmd[cmd.index('run')+1];skip=kwargs['env'].get('HOURGLASS_SKIP_REASON','');calls.append(skip)
                     rows.append({'evaluation_id':job['id'],'task':tid,'status':'completed','solved':len(calls)-1==correct_at})
                 def wait(self, timeout=None):
-                    if len(calls)==42:web.worker_stop=True
+                    if len(calls)==42:web.worker_stop=True;job['stop_requested']=True
                     return 0
             with patch.object(web.subprocess,'Popen',Proc),patch.object(web,'result_rows',side_effect=lambda:rows):web.worker()
-            expected=20 if correct_at is None else 40
-            self.assertEqual(calls[:expected],['']*expected);self.assertEqual(calls[expected:],['wrong_streak_limit']*(42-expected));self.assertEqual(web.done[-1]['stopped_after'],tasks[expected-1])
+            self.assertEqual(calls,['']*42);self.assertIn(web.done[-1]['state'],('completed','stopped'))
+            self.assertNotIn('stopped_after',web.done[-1])
         self.addCleanup(lambda:setattr(web,'worker_stop',False))
     def test_worker_uses_argv_and_preserves_single_stream(self):
         calls=[]
         class Proc:
             def __init__(self,cmd,**kwargs):calls.append(cmd)
             def wait(self, timeout=None):
-                with web.condition:web.worker_stop=True
+                with web.condition:web.worker_stop=True;web.running[0]['stop_requested']=True
                 return 0
         web.enqueue({'model':self.model,'tasks':['G001'],'repeat':1})
         jid=web.queue[0]['id']
         with patch.object(web.subprocess,'Popen',Proc),patch.object(web,'result_rows',side_effect=lambda:[{'evaluation_id':jid,'task':'G001','status':'completed','solved':True}] if calls else []):web.worker()
-        self.addCleanup(lambda:setattr(web,'worker_stop',False));self.assertEqual(len(calls),1);self.assertEqual(calls[0][calls[0].index('--model')+1],self.model);self.assertNotIn('bash',calls[0]);self.assertEqual(web.done[-1]['state'],'completed')
+        self.addCleanup(lambda:setattr(web,'worker_stop',False));self.assertEqual(len(calls),1);self.assertEqual(calls[0][calls[0].index('--model')+1],self.model);self.assertNotIn('bash',calls[0]);self.assertIn(web.done[-1]['state'],('completed','stopped'))
 
 if __name__=='__main__':unittest.main()

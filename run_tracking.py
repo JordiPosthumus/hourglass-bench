@@ -3,7 +3,6 @@ import scoring_policy
 import datetime as dt
 from collections import defaultdict
 
-STOP_AFTER_WRONG = 20
 MATH_LEVEL_TIERS = {"advanced_high_school": 1, "advanced_undergraduate": 5, "graduate": 9}
 
 def difficulty_tier(task):
@@ -60,6 +59,7 @@ def progress(manifest, raw, job, now):
     for r in effective:
         if r.get('status')=='completed':by_task[r['task']].append(r)
     points=0;finished=0;answered_questions=0;streak=0
+    cycling=bool(manifest.get('round_policy'))
     order=manifest.get('order') or [t['task'] for t in manifest['expected']]
     expected={t['task']:t['repeat'] for t in manifest['expected']}
     for tid in order:
@@ -68,7 +68,7 @@ def progress(manifest, raw, job, now):
         if any(r.get('task')==tid and r.get('status')=='timeout' for r in effective):
             finished+=1
             continue
-        if len(rs)==n:
+        if len(rs)>=n:
             finished+=1
             if not any(is_early_stop(r) for r in rs):
                 if scoring_policy.is_net(manifest.get('scoring_policy')) and not any(scoring_policy.final_answer(r) for r in rs):continue
@@ -88,10 +88,13 @@ def progress(manifest, raw, job, now):
         attempts=[r for r in scored if r['task'] in tids]
         correct=sum(bool(r.get('solved')) for r in attempts)
         breakdown[lane]={'points':sum(sum(bool(r.get('solved')) for r in by_task[t['task']])/t['repeat'] for t in tasks),
-                         'total_questions':len(tasks),'finished_questions':sum(len(by_task[t['task']])==t['repeat'] for t in tasks),
+                         'total_questions':len(tasks),'finished_questions':sum(len(by_task[t['task']])>=t['repeat'] for t in tasks),
                          'correct_attempts':correct,'scored_attempts':len(attempts),'accuracy':correct/len(attempts) if attempts else None,
                          'not_attempted':sum(is_early_stop(r) for r in effective if r['task'] in tids),
                          'errors':sum(r.get('status')=='error' for r in raw if r.get('task') in tids)}
+    if cycling:
+        finished=sum(any(r.get('task')==tid and r.get('run',1)==job.get('round_number',1) and r.get('status') in ('completed','timeout') for r in effective) for tid in order)
+        answered_questions=len(scored)
     return {'breakdown':breakdown,'points':points,'total_questions':len(expected),'finished_questions':finished,
             'answered_questions':answered_questions,'correct_attempts':sum(bool(r.get('solved')) for r in scored),
             'scored_attempts':len(scored),'accuracy':sum(bool(r.get('solved')) for r in scored)/len(scored) if scored else None,
@@ -99,5 +102,5 @@ def progress(manifest, raw, job, now):
             'timeouts':len({r['task'] for r in effective if r.get('status')=='timeout'}),
             'errors':sum(r.get('status')=='error' for r in raw),'elapsed_s':elapsed,
             'questions_per_minute':answered_questions*60/elapsed if elapsed>0 else None,
-            'stop_after_wrong':job.get('stop_after_wrong') or manifest.get('stop_after_wrong') or STOP_AFTER_WRONG,
-            'wrong_streak':min(streak,job.get('stop_after_wrong') or manifest.get('stop_after_wrong') or STOP_AFTER_WRONG), 'attempt_time_s':sum(r.get('duration_s',0) or 0 for r in raw)}
+            'stop_after_wrong':job.get('stop_after_wrong',manifest.get('stop_after_wrong')),
+            'wrong_streak':streak, 'attempt_time_s':sum(r.get('duration_s',0) or 0 for r in raw)}

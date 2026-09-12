@@ -7,7 +7,7 @@ from collections import deque
 from pathlib import Path
 from unittest.mock import patch
 
-import calibration
+import evaluation_store
 import run_editor
 import run_naming
 import web
@@ -68,7 +68,7 @@ class StartRunTests(unittest.TestCase):
                 job=web.queue[0];self.assertEqual(responses[0][1]['job'],job['id'])
                 manifest=json.loads((root/'evaluations'/(job['id']+'.json')).read_text())
                 self.assertEqual(manifest['model_config_snapshot'],config)
-                self.assertEqual(manifest['config_hash'],calibration.digest(config))
+                self.assertEqual(manifest['config_hash'],evaluation_store.digest(config))
                 self.assertEqual(job['tasks'],['example']);self.assertEqual(job['repeat'],1)
                 self.assertNotIn('quantization',run_editor.snapshot(root,job['id'])['values'])
             self.assertEqual(path.read_bytes(),before)

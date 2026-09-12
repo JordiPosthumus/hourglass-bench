@@ -1,10 +1,11 @@
 import json,tempfile,time,unittest,types
 from pathlib import Path
 from unittest.mock import patch
-import web,hourglass,calibration as c,run_tracking as rt
+import web,hourglass,evaluation_store as c,run_tracking as rt
 
 class ResumeTests(unittest.TestCase):
     def setUp(self):
+        warmup=patch.object(web.run_warmup,'run',return_value={'status':'completed','duration_s':0});warmup.start();self.addCleanup(warmup.stop)
         sound=patch.object(web.hour_deadline,'chime');sound.start();self.addCleanup(sound.stop)
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name)
         self.patches=[patch.object(web,k,self.root/v) for k,v in [('TASKS','tasks'),('RESULTS','results'),('LOGS','logs')]]+[patch.object(web,'ROOT',self.root)]
@@ -21,6 +22,9 @@ class ResumeTests(unittest.TestCase):
 
     def interrupted(self,repeat=1,n=2):
         job=web.enqueue({'model':'model','tasks':[f'T{i:02d}' for i in range(n)]})
+        # These fixtures exercise the saved historical single-pass resume contract.
+        job.pop('round_policy',None)
+        manifest=web.saved_manifest(job['id']);manifest.pop('round_policy',None);c.write(self.root/'evaluations'/(job['id']+'.json'),manifest)
         with web.condition:web.queue.remove(job)
         job.update(state='error',started=100,ended=120,error='fixture error');web.done.append(job);c.update_evaluation(self.root,job)
         self.job=job;self.m=web.saved_manifest(job['id'])
@@ -43,7 +47,7 @@ class ResumeTests(unittest.TestCase):
         class Proc:
             def __init__(self,cmd,**kwargs):
                 tid=cmd[cmd.index('run')+1];indices=[1]
-                skip=kwargs['env']['HOURGLASS_SKIP_REASON'];calls.append((tid,indices,skip))
+                skip=kwargs['env'].get('HOURGLASS_SKIP_REASON','');calls.append((tid,indices,skip))
                 for i in indices:outer.row(tid,i,solved=solved and not skip,reason=skip or None)
             def wait(self, timeout=None):web.worker_stop=True;return 0
         with patch.object(web.subprocess,'Popen',Proc):web.worker()
@@ -53,15 +57,15 @@ class ResumeTests(unittest.TestCase):
         job=self.interrupted(repeat=2);self.row('T00',1,solved=True);self.row('T00',2,status='error');self.row('T01',1,solved=True)
         log=web.LOGS/f"job-{job['id']}.log";log.write_text('ORIGINAL LOG\n')
         before=(web.RESULTS/'results.jsonl').read_bytes()
-        with self.assertRaisesRegex(ValueError,'runs once'):web.resume_job({'job':job['id']})
+        with self.assertRaisesRegex(ValueError,'historical repeat policy'):web.resume_job({'job':job['id']})
         self.assertEqual((web.RESULTS/'results.jsonl').read_bytes(),before)
         self.assertEqual(log.read_text(),'ORIGINAL LOG\n');self.assertFalse(web.queue)
 
-    def test_resume_retains_wrong_streak_and_stop_rule(self):
+    def test_resume_continues_after_twenty_wrong_answers(self):
         job=self.interrupted(n=21)
         for i in range(19):self.row(f'T{i:02d}')
         self.row('T19',status='error');web.resume_job({'job':job['id']})
-        self.assertEqual(self.run_fake(solved=False),[('T19',[1],''),('T20',[1],'wrong_streak_limit')]);self.assertEqual(web.done[-1]['stopped_after'],'T19')
+        self.assertEqual(self.run_fake(solved=False),[('T19',[1],''),('T20',[1],'')]);self.assertNotIn('stopped_after',web.done[-1])
         with self.assertRaises(ValueError):web.resume_job({'job':job['id']})
 
     def test_duplicate_resume_rejected_and_frozen_settings_survive_catalog_edit(self):
@@ -81,13 +85,13 @@ class ResumeTests(unittest.TestCase):
         job=self.interrupted();(self.root/self.m['task_snapshot']/'T00'/'task.json').write_text('{}')
         with self.assertRaisesRegex(ValueError,'content changed'):web.resume_job({'job':job['id']})
 
-    def test_cross_version_resume_is_labelled_and_not_calibrated(self):
+    def test_cross_version_resume_is_labelled(self):
         job=self.interrupted();self.m['benchmark_version']='1.1.0';c.write(self.root/'evaluations'/(job['id']+'.json'),self.m)
         self.row('T00',solved=True)['benchmark_version']='1.1.0'
         (web.RESULTS/'results.jsonl').write_text(''.join(json.dumps(x)+'\n' for x in self.rows))
-        plan=web.resume_plan(job,self.m,web.result_rows());self.assertTrue(plan['allowed']);self.assertIn('mixes versions',plan['version_warning'])
+        plan=web.resume_plan(job,self.m,web.result_rows());self.assertTrue(plan['allowed']);self.assertIn('mixes benchmark versions',plan['version_warning'])
         web.resume_job({'job':job['id']});self.run_fake()
-        self.assertFalse(c.evaluations(self.root,web.result_rows())[0]['eligible'])
+        self.assertEqual(web.saved_manifest(job['id'])['benchmark_version'],'1.1.0')
 
     def test_progress_counts_points_rate_and_idle_time_correctly(self):
         job=self.interrupted(repeat=2);self.row('T00',1,solved=True);self.row('T00',2);self.row('T01',1,status='error')
@@ -105,7 +109,7 @@ class ResumeTests(unittest.TestCase):
         job=self.interrupted();r=self.row('T00',solved=True);r.pop('evaluation_id');r['ts']='1970-01-01T00:01:50+00:00'
         (web.RESULTS/'results.jsonl').write_text(json.dumps(r)+'\n');self.m['legacy_time_match']=True;c.write(self.root/'evaluations'/(job['id']+'.json'),self.m)
         web.resume_job({'job':job['id']});m=web.saved_manifest(job['id']);self.assertEqual(m['legacy_run_ids'],[r['run_id']])
-        self.assertEqual(self.run_fake(),[('T01',[1],'')]);self.assertEqual(c.evaluations(self.root,web.result_rows())[0]['attempts'],2)
+        self.assertEqual(self.run_fake(),[('T01',[1],'')]);self.assertEqual(len(rt.raw_attempts(web.saved_manifest(job['id']),web.result_rows())),2)
 
 class ClearRunTests(unittest.TestCase):
     setUp=ResumeTests.setUp
@@ -128,10 +132,5 @@ class ClearRunTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'active model work'):web.clear_job({'job':job['id']})
         finally:web.running.clear()
         self.assertEqual((web.RESULTS/'results.jsonl').read_bytes(),before)
-    def test_clear_removes_reference_target_with_backup(self):
-        job=self.interrupted();self.row('T00',solved=True);self.row('T01',solved=True);job['state']='completed';c.update_evaluation(self.root,job)
-        c.set_reference(self.root,self.rows,{'evaluation_id':job['id'],'target':5})
-        result=web.clear_job({'job':job['id']});doc=c.read(self.root/'calibration.json',{})
-        self.assertTrue(all(not s['references'] for s in doc['scopes'].values()));self.assertTrue((self.root/result['backup']/'calibration-before.json').exists())
 
 if __name__=='__main__':unittest.main()

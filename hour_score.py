@@ -5,6 +5,7 @@ import time
 import repair_runs
 import score_weights
 import scoring_policy
+import run_tracking
 
 VERSION = 'hour-v1'
 WINDOW_S = 3600
@@ -55,6 +56,9 @@ def score(job, rows, expected=(), now=None):
             within.append(r)
             events.append((row_elapsed, r))
     available = timing_known and not unknown and not job.get("results_reset")
+    cumulative = job.get('scoring_policy') == scoring_policy.NET
+    # De-duplicate a persisted attempt, never distinct round attempts.
+    if cumulative:within = run_tracking.effective_attempts(within)
     correct = {r['task'] for r in within if r.get('solved')}
     completed = {r['task'] for r in within}
     net_policy = scoring_policy.is_net(job.get('scoring_policy'))
@@ -63,8 +67,11 @@ def score(job, rows, expected=(), now=None):
     unsupported = {r['task'] for r in within if r.get('score_reason') == 'unsupported_vision'} - correct - wrong
     weights={t['task']:t.get('weight',score_weights.weight(t)) for t in expected}
     weighted=lambda ids:round(sum(weights.get(tid,1.0) for tid in ids),6) if available else None
-    gross = weighted(correct)
-    net = round(gross-len(wrong),6) if available else None
+    correct_attempts = [r for r in within if r.get('solved')]
+    incorrect_attempts = [r for r in within if scoring_policy.incorrect(r)]
+    gross = round(sum(weights.get(r['task'],1.0) for r in correct_attempts),6) if available and cumulative else weighted(correct)
+    penalties = len(incorrect_attempts) if cumulative else len(wrong)
+    net = round(gross-penalties,6) if available else None
     lanes = {}
     for lane in ('text', 'vision'):
         rs = [r for r in within if vision.get(r['task'], r.get('kind') == 'chart-vqa' or r.get('section') in ('chart', 'charts')) == (lane == 'vision')]
@@ -78,37 +85,33 @@ def score(job, rows, expected=(), now=None):
             discovery[domain] = {'points': len(correct & group) if available else None,
                                  'weighted_points': round(weighted(correct & group) - (len(wrong & group) if net_policy else 0), 6) if available else None,
                                  'completed_questions': len(completed & group), 'total_questions': len(group)}
+    if cumulative:
+        for lane, subtotal in lanes.items():
+            rs=[r for r in within if vision.get(r['task'],r.get('kind')=='chart-vqa' or r.get('section') in ('chart','charts'))==(lane=='vision')]
+            subtotal.update(points=sum(bool(r.get('solved')) for r in rs) if available else None,
+                            weighted_points=round(sum(weights.get(r['task'],1.0) if r.get('solved') else -1 if scoring_policy.incorrect(r) else 0 for r in rs),6) if available else None)
+        for domain, subtotal in discovery.items():
+            group={t['task'] for t in expected if t.get('discovery_domain')==domain}
+            rs=[r for r in within if r['task'] in group]
+            subtotal.update(points=sum(bool(r.get('solved')) for r in rs) if available else None,
+                            weighted_points=round(sum(weights.get(r['task'],1.0) if r.get('solved') else -1 if scoring_policy.incorrect(r) else 0 for r in rs),6) if available else None)
     repeats={t['task']:t.get('repeat',1) for t in expected}
     all_finished=bool(tids) and all(tid in timeouts or set(range(1,repeats.get(tid,1)+1)).issubset({r.get('run',1) for r in within if r['task']==tid}) for tid in tids)
-    final = available and (elapsed >= WINDOW_S or all_finished)
+    final = available and (elapsed >= WINDOW_S or (all_finished and not job.get('round_policy')))
     state = 'unavailable' if not available else 'final' if final else 'in_progress' if job.get('state') == 'running' else 'not_started' if not started else 'partial'
-    # Integrate signed changes once per question; correct repeats supersede wrong ones.
-    horizon = WINDOW_S if final else max(0, min(WINDOW_S, elapsed))
     total_available = round(sum(weights.get(tid, 1.0) for tid in tids), 6)
-    area = 0.0
-    task_values = {}
-    for at, r in sorted(events, key=lambda event: event[0]):
-        previous = task_values.get(r['task'], 0.0)
-        value = weights.get(r['task'], 1.0) if r.get('solved') else previous
-        if net_policy and scoring_policy.incorrect(r) and previous <= 0:
-            value = -1.0
-        area += (value - previous) * max(0, horizon - at)
-        task_values[r['task']] = value
-    denominator = total_available * WINDOW_S / 200
-    normalized = round(area / denominator, 6) if available and denominator > 0 else None
-    return {'version': VERSION, 'window_s': WINDOW_S, 'points': len(correct) if available else None,
-            'score_version':'linear-auc-100-v1','hourglass_score':normalized,
-            'total_available_points':total_available,'auc_point_seconds':round(area,6) if available else None,
-            'score_denominator_point_seconds':denominator,
+    return {'version': VERSION, 'window_s': WINDOW_S, 'points': (len(correct_attempts) if cumulative else len(correct)) if available else None,
+            'score_version':'total-points-v1','hourglass_score':net if net_policy else gross,
+            'total_available_points':total_available,
             'weighted_version':score_weights.VERSION,'weighted_points':net if net_policy else gross,
             'scoring_policy':job.get('scoring_policy') or scoring_policy.LEGACY,'gross_points':gross,'net_points':net if net_policy else None,
-            'penalty_points':len(wrong) if net_policy else 0,'abstained_questions':len(abstained),'unsupported_questions':len(unsupported),
+            'penalty_points':penalties if net_policy else 0,'abstained_questions':len(abstained),'unsupported_questions':len(unsupported),
             'correct_tasks': sorted(correct) if available else [], 'breakdown': lanes,
             'repository_discovery': discovery,
             'timeouts':len(timeouts), 'resolved_questions':len(completed | timeouts),
             'resolved_available_points':weighted(completed | timeouts),
             'question_timeout_policy':job.get('question_timeout_policy'),
-            'completed_questions': len(completed), 'incorrect_questions': len(wrong),
+            'completed_questions': len(completed), 'incorrect_questions': len(incorrect_attempts) if cumulative else len(wrong),
             'total_questions': len(tids), 'after_deadline_questions': len(after), 'errors': errors,
             'elapsed_s': elapsed, 'remaining_s': max(0, WINDOW_S - elapsed), 'state': state,
             'repair_policy':(job.get('repair') or {}).get('policy'),
@@ -116,15 +119,15 @@ def score(job, rows, expected=(), now=None):
 
 
 def leaderboard(root, rows):
-    lines = ['## Hourglass score · linear AUC reference = 100', '',
-             'Correct questions within 3,600 active seconds earn 1–2 points on fixed section difficulty scales. Raw correct counts remain visible. '
+    lines = ['## Hourglass score · total points', '',
+             'Correct attempts within 3,600 active seconds earn their authored weight; incorrect answers lose one point. '
              'Scores are not extrapolated. Compare the same bank, order and repeat policy. '
-             'Metric: linear-auc-100-v1. 100 = all available weighted points earned linearly in one hour. Execution versions remain unchanged.', '',
+             'Metric: total-points-v1. Historical execution and award policies remain identified.', '',
              '| model | run | questions | Hourglass score | raw correct | text points | vision points | status |',
              '|---|---|---|---|---|---|---|---|']
     for p in sorted((root / 'evaluations').glob('*.json')):
         m = json.loads(p.read_text())
-        if not m.get('id') or not m.get('expected'):
+        if not m.get('id') or not m.get('expected') or __import__('run_archive').is_archived(root,m['id']):
             continue
         h = score(m, rows,score_weights.enrich(root,m['expected']))
         value = lambda n: '—' if n is None else str(n)

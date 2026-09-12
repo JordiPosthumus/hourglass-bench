@@ -29,7 +29,7 @@ function renderQuestionContextRows(){
 }
 function renderQuestionContext(job){
   const panel=document.getElementById('questionContext');if(!panel)return;
-  panel.hidden=document.getElementById('chartView').value!=='comparison';if(panel.hidden)return;
+  panel.hidden=chartView!=='comparison';if(panel.hidden)return;
   const selection=job.id+'|'+document.getElementById('chartScope').value+'|'+document.getElementById('chartRepeats').value;
   if(selection!==questionContextSelection){questionContextData=null;questionContextSelection=selection;questionContextTime=null;questionContextHover=null;document.getElementById('questionContextRows').innerHTML='<tr><td colspan="2">Loading question context…</td></tr>'}
   const key=selection+'|'+Math.floor(Date.now()/10000);
@@ -47,9 +47,11 @@ function initializeQuestionContext(){
   slider.oninput=()=>{questionContextTime=Number(slider.value);questionContextHover=null;renderQuestionContextRows()};
   document.getElementById('questionFollow').onclick=()=>{questionContextTime=null;questionContextHover=null;renderQuestionContextRows()};
   chart.addEventListener('pointermove',event=>{
-    if(!questionContextData||document.getElementById('chartView').value!=='comparison')return;
-    const box=chart.getBoundingClientRect(),x=(event.clientX-box.left)/box.width*1100,y=(event.clientY-box.top)/box.height*660;
-    questionContextHover=x>=82&&x<=1030&&y>=132&&y<=560?(x-82)/(1030-82)*3600:null;
+    if(!questionContextData||chartView!=='comparison')return;
+    const svg=chart.querySelector('svg');if(!svg)return;
+    const box=svg.getBoundingClientRect(),v=svg.viewBox.baseVal,x=(event.clientX-box.left)/box.width*v.width,y=(event.clientY-box.top)/box.height*v.height;
+    const right=Number(svg.dataset.plotRight||1030),bottom=Number(svg.dataset.plotBottom||560);
+    questionContextHover=x>=82&&x<=right&&y>=132&&y<=bottom?(x-82)/(right-82)*3600:null;
     renderQuestionContextRows();
   });
   chart.addEventListener('pointerleave',()=>{questionContextHover=null;renderQuestionContextRows()});

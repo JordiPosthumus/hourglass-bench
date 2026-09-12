@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
-import calibration
+import evaluation_store
 import hour_score
 import repair_runs
 import run_tracking
@@ -27,12 +27,12 @@ class RepairTests(unittest.TestCase):
             p=self.root/'tasks'/tid/'task.json';p.parent.mkdir(parents=True);p.write_text(json.dumps({'prompt':'PRIVATE QUESTION','answer':'PRIVATE ANSWER','section':'games','tier':1,'repeat':1}))
             expected.append({'task':tid,'task_sha':hashlib.sha256(p.read_bytes()).hexdigest()[:16],'repeat':1,'weight':1,'weight_version':'weighted-hour-v1','vision':False})
         cfg={'name':'fixture','model':'fixture','base_url':'http://fixture.invalid/v1','context_window':262144,'max_tokens':262144,'reasoning':'medium'}
-        self.source={'id':'original','model':'fixture','model_id':'fixture','model_config_snapshot':cfg,'config_hash':calibration.digest(cfg),'expected':expected,'order':['A','B','C','D'],'tasks':['A','B','C','D'],
+        self.source={'id':'original','model':'fixture','model_id':'fixture','model_config_snapshot':cfg,'config_hash':evaluation_store.digest(cfg),'expected':expected,'order':['A','B','C','D'],'tasks':['A','B','C','D'],
                      'benchmark_version':'2.5.0','state':'stopped','started':1000,'ended':4600,'elapsed_s':3600,'active_intervals':[{'start':1000,'end':4600}],
                      'repeat':1,'question_timeout_s':900,'stop_after_wrong':20,'scoring_policy':scoring_policy.NET,'question_elapsed_s':{'A':200,'B':900,'C':400},'current_task':'C','scope':'original-scope','created':900}
         self.rows=[{'run_id':tid,'evaluation_id':'original','model':'fixture','task':tid,'task_sha':expected[i]['task_sha'],'run':1,'ts':at(t),'status':status,'solved':solved,'duration_s':duration,'completion_tokens':50,'parsed_answer':{'answer':'A'},'benchmark_version':'2.5.0','reasoning':'PRIVATE TRACE'} for i,(tid,t,status,solved,duration) in enumerate([('A',1200,'completed',False,200),('B',2200,'timeout',False,900)])]
         self.rows[0]['caveats']=[{'code':'diagnostic_trace_exposure'}]
-        (self.root/'evaluations').mkdir();calibration.write(self.root/'evaluations/original.json',self.source)
+        (self.root/'evaluations').mkdir();evaluation_store.write(self.root/'evaluations/original.json',self.source)
         (self.root/'results').mkdir();(self.root/'results/results.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in self.rows))
         (self.root/'models.json').write_text(json.dumps({'models':[cfg]}))
 
@@ -49,7 +49,7 @@ class RepairTests(unittest.TestCase):
         self.assertNotIn('repair',report)
         import question_context
         question_context.build(self.root,[report],[source],self.rows,4600)
-        calibration.write(self.root/'evaluations/original.json',source)
+        evaluation_store.write(self.root/'evaluations/original.json',source)
         self.assertEqual(repair_runs.dependencies(self.root,'original'),[])
 
     def test_preserves_original_and_exact_config_with_explicit_credit(self):

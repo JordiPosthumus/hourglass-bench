@@ -35,6 +35,10 @@ Configure a local `models.json` using `models.example.json` as a format referenc
 
 Before setting up or rebuilding a model server, read [known agent/server issues](docs/issues-for-agents.md). Large output requests must use the space remaining after the complete prompt, including tool history and vision inputs. The [replayable patch bundle](backend-patches/output-space/README.md) provides exact source checks, backups, rollback and validation steps. Preserve the owner's established model capabilities and settings.
 
+## Run views
+
+Charts use visible tabs, with points over time first. Right-hand labels identify runs; hover or focus a line or label to highlight it. Archive hides an idle run from normal results and comparisons without deleting answers, settings, logs or artifacts. Restore it from Archived runs. Each new run and resume has an unscored warm-up before the scoring clocks start.
+
 ## Build a bank that matters to you
 
 Try repository handoffs, debugging from logs, reconciling conflicting specifications, interpreting charts you generated, checking calculations, or tracing a decision through a small document set. Use synthetic material or material you own and are entitled to send to your model endpoint.
@@ -56,9 +60,9 @@ The headline **Hourglass Score** measures the area under net points over active 
 3. Hourglass grades submissions and records timing, usage, evidence and configuration provenance.
 4. The controller stops the benchmark process group at 3,600 active seconds. Pauses between resumes do not count.
 
-New runs use `net-hour-v2`: a correct question earns its frozen 1–2 points; a submitted wrong answer costs 1 point; timeout, unsupported vision or no final submission earns zero. Distinct questions count once. Text and vision subtotals, gross points and wrong-answer counts remain visible. Each question runs once per evaluation; there is no repeat setting. See [scoring](docs/scoring.md).
+New runs use `net-hour-v3`. Total points are the sum of each attempt’s correct-answer reward or wrong-answer penalty within one hour. A correct answer earns its frozen authored weight; an incorrect final answer loses one point. Unfinished and unsupported outcomes earn zero. There is no AUC, forecast or custom calibration.
 
-Questions rotate through difficulty bands and subjects; optional challenge and repository-discovery groups have a documented cadence. The default total limit per question is 15 minutes within the shared hour. New runs randomize option IDs and positions using a private run seed; resumes retain that seed. Thus separate runs can have different option layouts even with identical bank files. See [methodology](docs/methodology.md), [prompt contract](docs/prompt-contract.md) and [run identity](docs/run-identity.md) for comparison limits. Uncalibrated questions carry no empirical difficulty claim.
+Questions rotate through difficulty bands and subjects; optional challenge and repository-discovery groups have a documented cadence. Each attempt has a 15-minute limit within the original one-hour clock. After the first pass, repeat the entire bank using the latest attempt: wrong answers first, then unfinished questions, then correct answers; slowest first in every group. Each attempt has a fresh conversation and workspace, without previous answers or grading. New runs randomize option IDs and positions using a private run seed; resumes retain that seed. Thus separate runs can have different option layouts even with identical bank files. See [methodology](docs/methodology.md), [prompt contract](docs/prompt-contract.md) and [run identity](docs/run-identity.md) for comparison limits. Uncalibrated questions carry no empirical difficulty claim.
 
 **Start timed evaluations in the UI.** The `hourglass.py run` command is for individual-task diagnostics and does not enforce a whole-evaluation hour by itself. `./stop-hourglass.sh` saves and stops this checkout's work; model servers remain running. Resume uses the saved run and clock when reliable timing evidence exists.
 

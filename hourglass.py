@@ -19,7 +19,7 @@ import urllib.request
 import urllib.parse
 import uuid
 import statistics
-import calibration
+import evaluation_store
 import run_tracking
 import hour_score
 import question_deadline
@@ -31,7 +31,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 TASKS, RESULTS, SANDBOX = ROOT / "tasks", ROOT / "results", ROOT / "sandboxes"
 REAL_HOME = str(Path.home())
-BENCHMARK_VERSION = "3.0.0"
+BENCHMARK_VERSION = "4.0.0"
 
 def requires_vision(task):
     return task.get("kind") == "chart-vqa" or bool(task.get("image") or task.get("assets"))
@@ -647,11 +647,12 @@ def cmd_run(args):
     presentation_seed=manifest.get('presentation_seed','') if evaluation_id else uuid.uuid4().hex
     sandboxed = not args.no_sandbox
     chart = task.get("kind") == "chart-vqa"
-    early_stop = os.environ.get("HOURGLASS_SKIP_REASON") in ("five_wrong_in_row", "wrong_streak_limit")
-    stop_limit = int(os.environ.get("HOURGLASS_STOP_AFTER_WRONG", run_tracking.STOP_AFTER_WRONG))
     unsupported_vision = requires_vision(task) and mcfg.get("supports_vision") is False
     had_error = False
-    for run in (1,):
+    attempt_number=int(os.environ.get('HOURGLASS_ATTEMPT_NUMBER','1'))
+    if attempt_number < 1 or (attempt_number != 1 and (not evaluation_id or manifest.get('round_policy') != __import__('question_rounds').POLICY)):
+        raise ValueError('Repeated attempts require a recorded whole-bank round policy.')
+    for run in (attempt_number,):
         task_identity.verify(TASKS/args.task,{'task_sha':task_sha,'task_bundle_sha':task_bundle_sha})
         task,option_presentation=option_layout.prepare(original_task,run,task_bundle_sha,presentation_seed) if not evaluation_id or manifest.get('option_layout_policy')==option_layout.POLICY else (original_task,None)
         run_id = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ") + "-" + uuid.uuid4().hex[:8]
@@ -661,20 +662,20 @@ def cmd_run(args):
         attempt_state = {'task': args.task, 'run': run, 'run_id': run_id, 'started': started,
                          'workdir': None, 'provenance': {k: prov.get(k) for k in ('node', 'pi_version')}}
         question_deadline.checkpoint(checkpoint_path, attempt_state)
-        workdir = None if unsupported_vision or early_stop else build(task)
+        workdir = None if unsupported_vision else build(task)
         attempt_state['workdir'] = str(workdir) if workdir is not None else None
         if workdir is not None:attempt_state.update(diagnostics.descriptor(ROOT,workdir))
         question_deadline.checkpoint(checkpoint_path, attempt_state)
-        if chart and not unsupported_vision and not early_stop:
+        if chart and not unsupported_vision:
             dst = workspace_path(workdir, task["image"])
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(TASKS / args.task / task["image"], dst)
         task_identity.verify(TASKS/args.task,{'task_sha':task_sha,'task_bundle_sha':task_bundle_sha})
         try:
-            if unsupported_vision or early_stop:
+            if unsupported_vision:
                 trace, parsed, disp_map = [], {}, None
                 metrics = {"prompt_tokens": 0, "completion_tokens": 0, "tool_calls": 0, "duration_s": 0,
-                           "score_reason": os.environ.get("HOURGLASS_SKIP_REASON") if early_stop else "unsupported_vision",
+                           "score_reason": "unsupported_vision",
                            "termination": "not_attempted"}
             else:
                 trace, metrics, parsed, disp_map = run_agent(task, mcfg, workdir, sandboxed)
@@ -693,8 +694,6 @@ def cmd_run(args):
         if metrics.get("error"):
             solved, vout, tampered = False, metrics["error"], []
             had_error = True
-        elif early_stop:
-            solved, vout, tampered = False, f"Not attempted: stopped after {stop_limit} consecutive incorrect questions; scored zero.", []
         elif unsupported_vision:
             solved, vout, tampered = False, "Vision unsupported: scored zero. " + ("Detected from endpoint rejection." if metrics.get("vision_detection") else "No model request needed."), []
         elif os.environ.get('HOURGLASS_SCORING_POLICY') == scoring_policy.WITH_ABSTENTION and parsed.get('abstain') is True:
@@ -706,7 +705,7 @@ def cmd_run(args):
             solved, vout, tampered, extra = score_mcq(task, parsed)
         else:
             solved, vout, tampered = verify(task, workdir, sandboxed)
-        patch = "" if unsupported_vision or early_stop else subprocess.run(["git", "-C", str(workdir), "diff", "HEAD"],
+        patch = "" if unsupported_vision else subprocess.run(["git", "-C", str(workdir), "diff", "HEAD"],
                                capture_output=True, text=True).stdout
         rdir = RESULTS / args.task / urllib.parse.quote(args.model, safe="") / f"run-{run_id}"
         rdir.mkdir(parents=True, exist_ok=False)
@@ -714,7 +713,7 @@ def cmd_run(args):
         if workdir is not None:diagnostics.publish(ROOT,workdir,rdir)
         (rdir / "patch.diff").write_text(patch)
         question_deadline_at = float(os.environ.get('HOURGLASS_QUESTION_DEADLINE_AT') or 0)
-        if question_deadline_at and time.monotonic() >= float(os.environ['HOURGLASS_QUESTION_DEADLINE_MONOTONIC']) and not early_stop:
+        if question_deadline_at and time.monotonic() >= float(os.environ['HOURGLASS_QUESTION_DEADLINE_MONOTONIC']):
             metrics.pop('error', None)
             metrics.update(termination='question_timeout', score_reason='question_timeout', timeout_at=question_deadline_at)
             solved, vout = False, f"Question exceeded {float(os.environ['HOURGLASS_QUESTION_TIMEOUT_S']):g} seconds; zero points; continuing to the next question."
@@ -725,7 +724,7 @@ def cmd_run(args):
                            question_started_at=float(os.environ['HOURGLASS_QUESTION_STARTED_AT']),
                            question_deadline_at=question_deadline_at)
         rec = {"task": args.task, "model": args.model, "run": run, "run_id": run_id,
-               "evaluation_id": os.environ.get("HOURGLASS_EVALUATION_ID"), "stop_after_wrong": stop_limit, "model_config_hash": calibration.digest(mcfg),
+               "evaluation_id": os.environ.get("HOURGLASS_EVALUATION_ID"), "model_config_hash": evaluation_store.digest(mcfg),
                "benchmark_version": BENCHMARK_VERSION, "diagnostic_isolation": diagnostics.POLICY, "scoring_policy": os.environ.get('HOURGLASS_SCORING_POLICY',scoring_policy.LEGACY), "supports_vision": mcfg.get("supports_vision"),
                "artifact_dir": str(rdir.relative_to(ROOT)), "tier": task.get("tier", 1),
                "status": "timeout" if metrics.get("termination") == "question_timeout" else "error" if metrics.get("error") else "completed",

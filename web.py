@@ -2,6 +2,7 @@
 """Hourglass local console. Stdlib HTTP, one worker, explicit model runs only."""
 import hashlib
 import live_tps
+import run_warmup
 import question_deadline
 import json, os, signal, subprocess, threading, time, uuid, sys, mimetypes, shutil
 from collections import deque
@@ -10,8 +11,9 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 import urllib.request
 import hourglass
-import calibration
-import model_scale
+import evaluation_store
+import question_rounds
+import run_archive
 import model_catalog
 import task_identity
 import inference_profiles
@@ -164,17 +166,21 @@ def resume_plan(job, manifest, rows):
     raw=run_tracking.raw_attempts(manifest,rows)
     missing={t['task']:run_tracking.missing_repeats(manifest,raw,t['task']) for t in manifest['expected']}
     missing={tid:indices for tid,indices in missing.items() if indices}
+    if question_rounds.enabled(manifest):
+        number=manifest.get('round_number',1)
+        missing={tid:[number] for tid in manifest.get('round_order',manifest.get('order',job.get('tasks',[]))) if not question_rounds.resolved(raw,tid,number)}
     reason=None
-    if any(t.get('repeat',1)!=1 for t in manifest['expected']):reason='Start a new run; each question now runs once.'
+    if run_archive.is_archived(ROOT,manifest['id']):reason='Restore this archived run before resuming.'
+    elif any(t.get('repeat',1)!=1 for t in manifest['expected']):reason='This historical repeat policy cannot be resumed. Start a new run.'
     elif job.get('state') not in ('error','cancelled','stopped'):reason='Only interrupted or cancelled runs can be resumed.'
     elif job.get('results_reset'):reason='Selected results were reset. Prepare a targeted rerun with a fresh clock.'
     elif (job.get('elapsed_s') or 0)>=hour_score.WINDOW_S:reason='The one-hour scoring window is complete. Start a new run for another attempt.'
     elif job.get('hour_timing_unknown') or manifest.get('hour_timing_unknown'):reason='Active time was interrupted without a reliable end timestamp. Start a new run using this setup.'
-    elif not missing:reason='Every planned attempt is already complete.'
+    elif not missing and not question_rounds.enabled(manifest):reason='Every planned attempt is already complete.'
     config=next((m for m in model_document()['models'] if m['name']==manifest['model']),None)
     frozen=manifest.get('model_config_snapshot')
     if frozen is not None:config=frozen
-    if not reason and (not config or calibration.digest(config)!=manifest['config_hash']):
+    if not reason and (not config or evaluation_store.digest(config)!=manifest['config_hash']):
         reason='The saved model settings changed. Start a fresh run to keep results comparable.'
     if not reason:
         task_root=ROOT/manifest['task_snapshot'] if manifest.get('task_snapshot') else TASKS
@@ -183,11 +189,11 @@ def resume_plan(job, manifest, rows):
                 reason='Question content changed. Start a fresh run.';break
     mixed=manifest['benchmark_version']!=hourglass.BENCHMARK_VERSION
     return {'allowed':reason is None,'reason':reason,'remaining_questions':len(missing),
-            'remaining_attempts':sum(map(len,missing.values())),'preserved_attempts':sum(t['repeat'] for t in manifest['expected'])-sum(map(len,missing.values())),
-            'version_warning':f"This run began on v{manifest['benchmark_version']}; continuing on v{hourglass.BENCHMARK_VERSION} mixes versions and is excluded from calibration." if mixed else None}
+            'remaining_attempts':sum(map(len,missing.values())),'preserved_attempts':len([r for r in run_tracking.effective_attempts(raw) if r.get('status') in ('completed','timeout')]) if question_rounds.enabled(manifest) else sum(t['repeat'] for t in manifest['expected'])-sum(map(len,missing.values())),
+            'version_warning':f"This run began on v{manifest['benchmark_version']}; continuing on v{hourglass.BENCHMARK_VERSION} mixes benchmark versions. Compare it as a mixed-version run." if mixed else None}
 
 def public_job(job, rows=None):
-    result={k:job.get(k) for k in ('id','label','model','repair','results_reset','scoring_policy','tasks','repeat','state','rc','created','started','ended','current_task','completed_tasks','total_tasks','error','stopped_after','resume_count','stop_after_wrong','stop_requested','stop_reason','active_intervals','hour_timing_unknown','timing_recoveries','question_timeout_s','question_timeout_policy','question_elapsed_s','question_deadline_at')}
+    result={k:job.get(k) for k in ('id','label','model','repair','results_reset','scoring_policy','tasks','repeat','state','rc','created','started','ended','current_task','completed_tasks','total_tasks','error','stopped_after','resume_count','stop_after_wrong','stop_requested','stop_reason','active_intervals','hour_timing_unknown','timing_recoveries','question_timeout_s','question_timeout_policy','question_elapsed_s','question_deadline_at','warmup_policy','warmup')}
     if rows is not None:
         manifest=read_json(ROOT/'evaluations'/(job['id']+'.json'))
         if manifest:
@@ -202,7 +208,9 @@ def public_job(job, rows=None):
             result['user_settings']=settings_records.records(ROOT,job['id'])
             result['run_details']=run_editor.snapshot(ROOT,job['id'])
             result['run_identity']=run_editor.display(ROOT,manifest)
+    result['run_key']=hashlib.sha256(str(job['id']).encode()).hexdigest()[:24]
     result['telemetry']=live_tps.snapshot(ROOT,job)
+    result.update(archived=run_archive.is_archived(ROOT,job['id']),round_policy=job.get('round_policy'),round_number=job.get('round_number',1))
     return result
 
 def state():
@@ -222,9 +230,9 @@ def state():
             'model_configs':doc.get('models',[]),'models_json':json.dumps(doc,indent=2),'models_revision':models_revision,'model_library_available':True,
             'model_errors':hourglass.validate_models(doc),'results':rows,
             'endpoint_hardware':endpoint_hardware.snapshot(ROOT,doc.get('models',[])),
-            'calibration_available':True,'benchmark_version':hourglass.BENCHMARK_VERSION,'harness':{'name':'pi','version':'0.85.1','temperature_policy':'native_model_declaration','default_baseline':'stock Pi'},
-            'score_policy':{'version':hour_score.VERSION,'window_s':hour_score.WINDOW_S,'metric':'linear-auc-100-v1','scoring_policy':scoring_policy.NET},
-            'execution_policy':{'timeouts':True,'question_timeout_s':question_deadline.LIMIT_S,'question_timeout_policy':question_deadline.POLICY,'stop_after_wrong':run_tracking.STOP_AFTER_WRONG,'order':ORDER_POLICY},
+            'benchmark_version':hourglass.BENCHMARK_VERSION,'harness':{'name':'pi','version':'0.85.1','temperature_policy':'native_model_declaration','default_baseline':'stock Pi'},
+            'score_policy':{'version':hour_score.VERSION,'window_s':hour_score.WINDOW_S,'metric':'total-points-v1','scoring_policy':scoring_policy.NET},
+            'execution_policy':{'timeouts':True,'question_timeout_s':question_deadline.LIMIT_S,'question_timeout_policy':question_deadline.POLICY,'stop_after_wrong':None,'order':ORDER_POLICY},
             'provenance':read_json(ROOT/'provenance.json',{}),'jobs':jobs,
             'sandbox_available':shutil.which('sandbox-exec') is not None}
 
@@ -247,7 +255,7 @@ def resume_job(body):
         elapsed=previous.get('elapsed_s')
         if elapsed is None:elapsed=max(0,(previous.get('ended') or time.time())-(previous.get('started') or time.time()))
         order=manifest.get('order') or [t['task'] for t in manifest['expected']]
-        job={**manifest,'tasks':order,'stop_after_wrong':run_tracking.STOP_AFTER_WRONG,'state':'pending','ended':None,'error':None,'rc':None,
+        job={**manifest,'warmup_policy':run_warmup.POLICY,'tasks':order,'stop_after_wrong':None,'state':'pending','ended':None,'error':None,'rc':None,
              'elapsed_s':elapsed,'active_started':None,'stop_requested':False,'resume_count':manifest.get('resume_count',0)+1,
              'resume_versions':list(dict.fromkeys(manifest.get('resume_versions',[])+[hourglass.BENCHMARK_VERSION])),
              'completed_tasks':len(order)-plan['remaining_questions'],'total_tasks':len(order),
@@ -262,7 +270,7 @@ def resume_job(body):
                 job['hour_timing_unknown']=True
         # Keep the original version/scope and raw attempts; a cross-version continuation is never relabelled.
         manifest.update({k:job[k] for k in ('state','ended','error','rc','elapsed_s','active_started','resume_count','resume_versions')})
-        calibration.write(ROOT/'evaluations'/(jid+'.json'),manifest)
+        evaluation_store.write(ROOT/'evaluations'/(jid+'.json'),manifest)
         for j in list(done):
             if j['id']==jid:done.remove(j)
         queue.append(job);condition.notify_all()
@@ -285,7 +293,7 @@ def stop_job(body):
         return {'ok':True,'job':job['id']}
 
 def start_repair(body):
-    with condition, calibration.LOCK:
+    with condition, evaluation_store.LOCK:
         if shutting_down:raise ValueError('Restart the console before starting a repair.')
         if running or queue:raise ValueError('Wait for active and queued runs to finish. Each repair starts manually after you change models.')
         source=saved_manifest(body.get('job'))
@@ -295,7 +303,7 @@ def start_repair(body):
         return job
 
 def reset_attempts(body):
-    with condition, calibration.LOCK:
+    with condition, evaluation_store.LOCK:
         if running or queue: raise ValueError('Wait until active and queued runs finish before resetting results.')
         result=attempt_reset.reset(ROOT,body)
         for job in done:
@@ -307,7 +315,7 @@ def reset_attempts(body):
 
 
 def clear_job(body):
-    with condition, calibration.LOCK:
+    with condition, evaluation_store.LOCK:
         jid=body.get('job');manifest=saved_manifest(jid)
         if running:raise ValueError('Wait for active model work to finish before clearing history.')
         if any(j['id']==jid for j in queue):raise ValueError('Remove this run from the queue before clearing it.')
@@ -342,17 +350,6 @@ def clear_job(body):
             if path.is_relative_to(RESULTS.resolve()) and path.is_dir() and path.name.startswith('run-') and path not in artifacts:
                 dest=backup/'artifacts'/path.relative_to(RESULTS.resolve());dest.parent.mkdir(parents=True,exist_ok=True)
                 shutil.copytree(path,dest);artifacts.append(path)
-        doc=calibration.read(ROOT/'calibration.json',{'schema_version':1,'scopes':{}});changed=False
-        for scope in doc['scopes'].values():
-            refs=[r for r in scope['references'] if r['evaluation_id']!=jid]
-            if len(refs)!=len(scope['references']):
-                scope.update(references=refs,revision=uuid.uuid4().hex,fit=calibration.fit(refs));changed=True
-        if changed:
-            shutil.copy2(ROOT/'calibration.json',backup/'calibration-before.json')
-            calibration.save_document(ROOT,doc)
-        scale_path=ROOT/'model-scale.json'
-        if scale_path.exists():shutil.copy2(scale_path,backup/'model-scale-before.json')
-        model_scale.remove_reference(ROOT,{'evaluation_id':jid},missing_ok=True)
         kept=[]
         for line in lines:
             try:r=json.loads(line)
@@ -381,45 +378,64 @@ def worker():
             condition.wait_for(lambda: queue or worker_stop)
             if worker_stop:return
             job=queue.popleft();now=time.time()
-            job.update(state='running',active_started=now,elapsed_s=job.get('elapsed_s',0))
-            job['_hour_deadline_monotonic']=time.monotonic()+max(0,hour_score.WINDOW_S-job['elapsed_s'])
+            job.update(state='running',active_started=None,elapsed_s=job.get('elapsed_s',0))
             job.setdefault('question_elapsed_s',{})
-            job.setdefault('active_intervals',[]).append({'start':now,'end':None})
-            if not job.get('started'):job['started']=now
-            running.append(job);calibration.update_evaluation(ROOT,job)
-            threading.Thread(target=hour_deadline.watch_job,args=(job,condition,stop_job),daemon=True).start()
+            job.setdefault('active_intervals',[])
+            running.append(job);evaluation_store.update_evaluation(ROOT,job)
         LOGS.mkdir(exist_ok=True)
-        threading.Thread(target=live_tps.collect,args=(ROOT,job,condition),daemon=True).start()
         try:
             manifest=saved_manifest(job['id'])
             if any(t.get('repeat',1)!=1 for t in manifest['expected']):
                 raise ValueError('Start a new run; each question now runs once.')
             current_config=next((m for m in model_document().get('models',[]) if m.get('name')==manifest.get('model')),None)
-            config_path=calibration.frozen_config_path(ROOT,manifest,current_config)
+            config_path=evaluation_store.frozen_config_path(ROOT,manifest,current_config)
+            if job.get('warmup_policy')==run_warmup.POLICY:
+                job['warmup']={'status':'running','started_at':time.time()}
+                evaluation_store.update_evaluation(ROOT,job)
+                config=json.loads(config_path.read_text())['models'][0]
+                job['warmup']=run_warmup.run(config,job,condition)
+                job['warmup']['completed_at']=time.time()
+                job.setdefault('warmups',[]).append(dict(job['warmup']))
+                evaluation_store.update_evaluation(ROOT,job)
+            with condition:
+                if job.get('stop_requested'):raise InterruptedError('Run stopped before scoring started.')
+                now=time.time();job['active_started']=now
+                job['_hour_deadline_monotonic']=time.monotonic()+max(0,hour_score.WINDOW_S-job['elapsed_s'])
+                job['active_intervals'].append({'start':now,'end':None})
+                if not job.get('started'):job['started']=now
+                evaluation_store.update_evaluation(ROOT,job)
+                threading.Thread(target=hour_deadline.watch_job,args=(job,condition,stop_job),daemon=True).start()
+            threading.Thread(target=live_tps.collect,args=(ROOT,job,condition),daemon=True).start()
             with (LOGS/f"job-{job['id']}.log").open('a') as log:
                 log.write(f"\n{'RESUME' if job.get('resume_count') else 'RUN'} · Hourglass {hourglass.BENCHMARK_VERSION}\n");log.flush()
-                wrong_streak=0;job['completed_tasks']=0
-                stop_limit=job.get('stop_after_wrong') or run_tracking.STOP_AFTER_WRONG
-                for tid in job['tasks']:
+                job['completed_tasks']=0
+                for tid, attempt_number in question_rounds.attempts(job,manifest,
+                        lambda:run_tracking.raw_attempts(manifest,result_rows()),
+                        lambda:evaluation_store.update_evaluation(ROOT,job)):
+                    if time.monotonic() >= job['_hour_deadline_monotonic']:
+                        stop_job({'job':job['id'],'reason':'hour_limit'})
                     if job.get('stop_requested'):
                         job.update(state='stopped',error=None);break
                     raw=run_tracking.raw_attempts(manifest,result_rows())
-                    missing=run_tracking.missing_repeats(manifest,raw,tid)
-                    skip=wrong_streak>=stop_limit
+                    cycling=question_rounds.enabled(job)
+                    missing=([attempt_number] if not question_rounds.resolved(raw,tid,attempt_number) else []) if cycling else run_tracking.missing_repeats(manifest,raw,tid)
                     if missing:
                         with condition:job['current_task']=tid
                         qstart=time.time();qmono=time.monotonic();qlimit=question_deadline.configured_limit(job)
-                        qremaining=max(0,qlimit-job['question_elapsed_s'].get(tid,0)) if qlimit else None
+                        elapsed_key=f'{tid}:{attempt_number}' if cycling else tid
+                        qremaining=max(0,qlimit-job['question_elapsed_s'].get(elapsed_key,0)) if qlimit else None
                         qdeadline=qmono+qremaining if qlimit else None
                         job['question_deadline_at']=qstart+qremaining if qlimit else None
                         token=uuid.uuid4().hex
                         job['active_question']={'token':token,'task':tid,'started_at':qstart,
-                                                'elapsed_before_s':job['question_elapsed_s'].get(tid,0)}
-                        calibration.update_evaluation(ROOT,job)
+                                                'attempt_number':attempt_number,'elapsed_key':elapsed_key,
+                                                'elapsed_before_s':job['question_elapsed_s'].get(elapsed_key,0)}
+                        evaluation_store.update_evaluation(ROOT,job)
                         checkpoint=LOGS/f"attempt-{job['id']}.json"
                         question_deadline.checkpoint(checkpoint,{})
-                        env=dict(os.environ,NODE_ID=os.environ.get('NODE_ID','unknown'),HOURGLASS_EVALUATION_ID=job['id'],HOURGLASS_SCORING_POLICY=job.get('scoring_policy',scoring_policy.LEGACY),HOURGLASS_SKIP_REASON='wrong_streak_limit' if skip else '',HOURGLASS_STOP_AFTER_WRONG=str(stop_limit),HOURGLASS_ATTEMPT_CHECKPOINT=str(checkpoint),HOURGLASS_TELEMETRY_PHASE=str(LOGS/f"phase-{job['id']}.json"))
+                        env=dict(os.environ,NODE_ID=os.environ.get('NODE_ID','unknown'),HOURGLASS_EVALUATION_ID=job['id'],HOURGLASS_SCORING_POLICY=job.get('scoring_policy',scoring_policy.LEGACY),HOURGLASS_ATTEMPT_CHECKPOINT=str(checkpoint),HOURGLASS_TELEMETRY_PHASE=str(LOGS/f"phase-{job['id']}.json"))
                         env.update(HOURGLASS_CONTROLLER_PID=str(os.getpid()),HOURGLASS_QUESTION_TOKEN=token,
+                                   HOURGLASS_ATTEMPT_NUMBER=str(attempt_number),
                                    HOURGLASS_QUESTION_TASK=tid,HOURGLASS_QUESTION_STARTED_AT=str(qstart),
                                    HOURGLASS_QUESTION_STARTED_MONOTONIC=str(qmono))
                         if qlimit:
@@ -436,12 +452,12 @@ def worker():
                         rc,timed_out=question_deadline.wait(proc,job,condition,qdeadline)
                         with condition:
                             job.pop('_process',None)
-                            job['question_elapsed_s'][tid]=job['question_elapsed_s'].get(tid,0)+max(0,time.monotonic()-qmono)
-                            calibration.update_evaluation(ROOT,job)
+                            job['question_elapsed_s'][elapsed_key]=job['question_elapsed_s'].get(elapsed_key,0)+max(0,time.monotonic()-qmono)
+                            evaluation_store.update_evaluation(ROOT,job)
                         raw=run_tracking.raw_attempts(manifest,result_rows())
-                        if timed_out and not any(r.get('task')==tid and r.get('status')=='timeout' for r in raw):
+                        if timed_out and not question_rounds.resolved(raw,tid,attempt_number):
                             state=read_json(checkpoint,{})
-                            missing_now=run_tracking.missing_repeats(manifest,raw,tid)
+                            missing_now=[attempt_number] if cycling else run_tracking.missing_repeats(manifest,raw,tid)
                             if missing_now:
                                 question_deadline.timeout_record(ROOT,manifest,job,tid,state.get('run') if state.get('run') in missing_now else missing_now[0],state,qstart,job['question_deadline_at'],hourglass.BENCHMARK_VERSION)
                         if timed_out:rc=0
@@ -452,26 +468,24 @@ def worker():
                             with condition:job.update(state='error',rc=rc,error=f'{tid} could not complete. Open its log for details.')
                             break
                         raw=run_tracking.raw_attempts(manifest,result_rows())
-                        if run_tracking.missing_repeats(manifest,raw,tid):
+                        if (not question_rounds.resolved(raw,tid,attempt_number)) if cycling else run_tracking.missing_repeats(manifest,raw,tid):
                             with condition:job.update(state='error',rc=1,error=f'{tid} did not produce a valid result.')
                             break
                     with condition:job['completed_tasks']+=1
-                    if not skip and not any(r.get('task')==tid and r.get('status')=='timeout' for r in raw):
-                        attempts=[r for r in run_tracking.effective_attempts(raw) if r.get('task')==tid]
-                        if scoring_policy.is_net(job.get('scoring_policy')) and not any(scoring_policy.final_answer(r) for r in attempts):continue
-                        wrong_streak=0 if any(r.get('solved') for r in attempts) else wrong_streak+1
-                        if wrong_streak>=stop_limit:
-                            with condition:job['stopped_after']=tid
-                            log.write(f'\nSTOP: {stop_limit} consecutive incorrect questions. Remaining questions recorded as not-attempted zeros.\n');log.flush()
                 else:
                     with condition:job.update(state='completed',rc=0)
         except Exception as e:
-            with condition:job.update(state='error',rc=1,error=str(e))
+            with condition:
+                job.update(state='stopped' if job.get('stop_requested') else 'error',rc=1,error=str(e))
+                if job.get('warmup',{}).get('status')=='running':job['warmup']['status']='cancelled' if job.get('stop_requested') else 'failed'
         finally:
             with condition:
-                job['ended']=time.time();job['elapsed_s']+=job['ended']-job['active_started'];job['active_started']=None
-                job['active_intervals'][-1]['end']=job['ended']
-                running.remove(job);done.append(job);condition.notify_all();calibration.update_evaluation(ROOT,job)
+                job['ended']=time.time()
+                if job.get('active_started') is not None:
+                    job['elapsed_s']+=job['ended']-job['active_started']
+                    job['active_intervals'][-1]['end']=job['ended']
+                job['active_started']=None
+                running.remove(job);done.append(job);condition.notify_all();evaluation_store.update_evaluation(ROOT,job)
             hour_deadline.finish_sound(job)
 
 def persist_recovery(path, manifest):
@@ -480,10 +494,10 @@ def persist_recovery(path, manifest):
     restored,evidence=recovered
     backup=ROOT/'backups'/('recovered-run-'+time.strftime('%Y%m%dT%H%M%SZ',time.gmtime())+'-'+uuid.uuid4().hex[:8]+'-'+manifest['id'])
     backup.mkdir(parents=True)
-    calibration.write(backup/'evaluation-before.json',manifest)
+    evaluation_store.write(backup/'evaluation-before.json',manifest)
     for proof in evidence.pop('files'):shutil.copy2(proof,backup/proof.name)
-    calibration.write(backup/'recovery.json',evidence)
-    calibration.write(path,restored)
+    evaluation_store.write(backup/'recovery.json',evidence)
+    evaluation_store.write(path,restored)
     return restored
 
 
@@ -521,8 +535,8 @@ def restore_job_history():
             m['state']='error'
             backup=ROOT/'backups'/('interrupted-run-'+time.strftime('%Y%m%dT%H%M%SZ',time.gmtime())+'-'+m['id'])
             backup.mkdir(parents=True,exist_ok=True)
-            calibration.write(backup/'evaluation-before.json',prior)
-            calibration.write(path,m)
+            evaluation_store.write(backup/'evaluation-before.json',prior)
+            evaluation_store.write(path,m)
         m=persist_recovery(path,m);state=m.get('state',state)
         done.append({**m,'state':state,'tasks':m.get('order') or [t['task'] for t in m['expected']],
                      'total_tasks':len(m['expected']), 'label':m.get('label',m['model']+' · saved evaluation')})
@@ -555,8 +569,8 @@ def _enqueue_reviewed(body,document):
     bad=[t for t in tids if catalog[t]['issues']]
     if bad:raise ValueError('These tests need repair before running: '+', '.join(bad))
     tids=ordered_tasks(list(catalog.values()),tids)
-    job={'scoring_policy':scoring_policy.NET,'id':uuid.uuid4().hex,'label':f'{model} · {len(tids)} tests','model':model,'tasks':tids,
-         'repeat':1,'question_timeout_s':question_deadline.LIMIT_S,'question_timeout_policy':question_deadline.POLICY,'stop_after_wrong':run_tracking.STOP_AFTER_WRONG,'state':'pending','created':time.time(),'completed_tasks':0,'total_tasks':len(tids)}
+    job={'round_policy':question_rounds.POLICY,'warmup_policy':run_warmup.POLICY,'scoring_policy':scoring_policy.NET,'id':uuid.uuid4().hex,'label':f'{model} · {len(tids)} tests','model':model,'tasks':tids,
+         'repeat':1,'question_timeout_s':question_deadline.LIMIT_S,'question_timeout_policy':question_deadline.POLICY,'stop_after_wrong':None,'state':'pending','created':time.time(),'completed_tasks':0,'total_tasks':len(tids)}
     config=next(m for m in document['models'] if m['name']==model)
     inference_profiles.request_settings(config)
     if body.get('task_bundles') is not None:job['reviewed_task_bundles']=body['task_bundles']
@@ -567,7 +581,7 @@ def _enqueue_reviewed(body,document):
         naming=run_editor.required_identity(body.get('identity') or run_editor.initial_identity(ROOT,config)['values'])
         source=saved_manifest(body['copy_from']) if body.get('copy_from') else None
         if source and source['model']!=model:raise ValueError('Copied run details belong to another model. Clear the copied setup before changing models.')
-        manifest=calibration.evaluation_manifest(ROOT,job,hourglass.BENCHMARK_VERSION,config)
+        manifest=evaluation_store.evaluation_manifest(ROOT,job,hourglass.BENCHMARK_VERSION,config)
         if source:run_editor.copy_setup(ROOT,source,manifest)
         else:run_editor.reuse_setup(ROOT,manifest)
         current=run_editor.snapshot(ROOT,manifest['id'])
@@ -601,7 +615,7 @@ class H(BaseHTTPRequestHandler):
     def score_route(self,method):
         global score_handler
         with condition:
-            if score_handler is None:score_handler=score_publisher.handler(ROOT,PORT,PORT,os.environ.get('HOURGLASS_REPORT_REPO',''),prefix='/scores')
+            if score_handler is None:score_handler=score_publisher.handler(ROOT,PORT,PORT,'JordiPosthumus/hourglass-bench',prefix='/scores')
         getattr(score_handler,method)(self)
     def send(self,data,kind='application/json',status=200):
         self.send_bytes(data.encode(),status,kind)
@@ -634,10 +648,6 @@ class H(BaseHTTPRequestHandler):
             try:self._json(model_catalog.lmstudio())
             except ValueError as exc:self._json({'error':str(exc)},400)
             return
-        if u.path=='/api/model-scale':
-            with condition:self._json(model_scale.report(ROOT,result_rows(),[*queue,*running,*done]))
-            return
-        if u.path=='/api/calibration':self._json(calibration.report(ROOT,result_rows()));return
         if u.path=='/api/health':self._json({'app':'Hourglass','version':2,'benchmark_version':hourglass.BENCHMARK_VERSION,'shutdown_api':1,'repair_policy':repair_runs.POLICY,'workspace_key':workspace_key(),'controller_instance':controller_instance,'shutting_down':shutting_down});return
         if u.path in ('/api/log','/api/log/full'):
             jid=q.get('job',[''])[0]
@@ -713,16 +723,6 @@ class H(BaseHTTPRequestHandler):
                 if b.get('controller_instance')!=controller_instance:raise ValueError('The controller changed. Refresh its identity before stopping.')
                 request_shutdown(self.server)
                 self._json({'ok':True});return
-            if route=='/api/model-scale/reference':
-                with condition:result=model_scale.set_reference(ROOT,result_rows(),b,[*queue,*running,*done])
-                self._json({'ok':True,'revision':result['revision']});return
-            if route=='/api/model-scale/remove':
-                with condition:model_scale.remove_reference(ROOT,b)
-                self._json({'ok':True});return
-            if route=='/api/calibration/reference':
-                scope=calibration.set_reference(ROOT,result_rows(),b);self._json({'ok':True,'scope':scope});return
-            if route=='/api/calibration/remove':
-                calibration.remove_reference(ROOT,b);self._json({'ok':True});return
             if route=='/api/hardware-groups':
                 with condition:self._json(hardware_groups.save(ROOT,b))
                 return
@@ -745,6 +745,11 @@ class H(BaseHTTPRequestHandler):
             if route=='/api/stop':self._json(stop_job(b));return
             if route=='/api/repair-run':self._json({'ok':True,'job':start_repair(b)['id']});return
             if route=='/api/attempt-reset':self._json(reset_attempts(b));return
+            if route=='/api/archive-run':
+                with condition:
+                    if any(j['id']==b.get('job') for j in [*running,*queue]):raise ValueError('Wait until this run is idle before archiving.')
+                    result=run_archive.set_archived(ROOT,b.get('job'),b.get('archived'))
+                self._json(result);return
             if route=='/api/clear-run':self._json(clear_job(b));return
             if route=='/api/resume':
                 job=resume_job(b);self._json({'ok':True,'job':job['id']});return
@@ -755,7 +760,7 @@ class H(BaseHTTPRequestHandler):
                     job=next((j for j in queue if j['id']==b.get('job')),None)
                     if not job:raise ValueError('Only waiting runs can be removed. Active work is left running.')
                     queue.remove(job);job.update(state='cancelled',ended=time.time());done.append(job)
-                    calibration.update_evaluation(ROOT,job)
+                    evaluation_store.update_evaluation(ROOT,job)
                 self._json({'ok':True});return
             if route=='/api/endpoint-hardware':
                 with condition:
@@ -763,6 +768,8 @@ class H(BaseHTTPRequestHandler):
                 self._json(result);return
             if route=='/api/model-library/server':
                 self._json(model_catalog.inspect_endpoint(b.get('base_url'),b.get('api_key')));return
+            if route=='/api/model-library/lmstudio':
+                self._json(model_catalog.lmstudio(b.get('api_key'),b.get('base_url')));return
             if route=='/api/models/add':
                 self._json(model_store.add(ROOT,b.get('entry'),hourglass.validate_models,b.get('revision')));return
             if route=='/api/models':
@@ -792,7 +799,7 @@ def request_shutdown(server):
         shutting_down=True;worker_stop=True
         for job in list(queue):
             queue.remove(job);job.update(state='cancelled',ended=time.time());done.append(job)
-            calibration.update_evaluation(ROOT,job)
+            evaluation_store.update_evaluation(ROOT,job)
         for job in list(running):stop_job({'job':job['id']})
         condition.notify_all()
     def drain():

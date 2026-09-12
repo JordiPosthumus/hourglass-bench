@@ -26,8 +26,9 @@ function hourScore(job, rows, expected=[], now=Date.now()/1000){
     if(rowElapsed>3600){if(r.status==='completed')after.add(r.task);continue}
     if(r.status==='timeout')timeouts.add(r.task);else if(r.status==='error')errors++;else if(r.status==='completed'){within.push(r);events.push([rowElapsed,r]);}
   }
+  if(job.scoring_policy==='net-hour-v3'){const effective=new Map();for(const r of within)effective.set(r.task+'|'+(r.run??1),r);within.splice(0,within.length,...effective.values())}
   const available=timingKnown&&!unknown&&!job.results_reset,correct=new Set(within.filter(r=>r.solved).map(r=>r.task)),completed=new Set(within.map(r=>r.task));
-  const netPolicy=['net-hour-v1','net-hour-v2'].includes(job.scoring_policy),neutral=['unsupported_vision','abstained','question_timeout','not_attempted','turn_limit','stopped','unfinished','wrong_streak_limit','five_wrong_in_row'];
+  const netPolicy=['net-hour-v1','net-hour-v2','net-hour-v3'].includes(job.scoring_policy),neutral=['unsupported_vision','abstained','question_timeout','not_attempted','turn_limit','stopped','unfinished','wrong_streak_limit','five_wrong_in_row'];
   const wrong=new Set(within.filter(r=>!r.solved&&(!netPolicy||!neutral.includes(r.score_reason)&&!neutral.includes(r.termination))).map(r=>r.task).filter(t=>!correct.has(t)));
   const countReason=reason=>new Set(within.filter(r=>r.score_reason===reason).map(r=>r.task).filter(t=>!correct.has(t)&&!wrong.has(t))).size;
   const weights=new Map(expected.map(t=>[t.task,t.weight??questionWeight(t)]));
@@ -44,41 +45,30 @@ function hourScore(job, rows, expected=[], now=Date.now()/1000){
     const group=expected.filter(t=>t.section==='repository_discovery'&&t.discovery_domain===domain&&tids.has(t.task)).map(t=>t.task);
     if(group.length)discovery[domain]={points:available?group.filter(t=>correct.has(t)).length:null,weighted_points:available?Math.round((weighted(new Set(group.filter(t=>correct.has(t))))-(netPolicy?group.filter(t=>wrong.has(t)).length:0))*1e6)/1e6:null,completed_questions:group.filter(t=>completed.has(t)).length,total_questions:group.length};
   }
+  const cumulative=job.scoring_policy==='net-hour-v3';
+  const attemptMap=new Map();for(const r of within)attemptMap.set(r.task+'|'+(r.run??1),r);
+  const attempts=[...attemptMap.values()],correctAttempts=attempts.filter(r=>r.solved),wrongAttempts=attempts.filter(r=>!r.solved&&!neutral.includes(r.score_reason)&&!neutral.includes(r.termination));
+  const gross=cumulative?(available?correctAttempts.reduce((n,r)=>n+(weights.get(r.task)??1),0):null):weighted(correct);
+  const penalties=netPolicy?(cumulative?wrongAttempts.length:wrong.size):0;
+  const total=available?Math.round((gross-penalties)*1e6)/1e6:null;
+  if(cumulative){
+    const apply=(sub,rs)=>{sub.points=available?rs.filter(r=>r.solved).length:null;sub.weighted_points=available?Math.round(rs.reduce((n,r)=>n+(r.solved?(weights.get(r.task)??1):!neutral.includes(r.score_reason)&&!neutral.includes(r.termination)?-1:0),0)*1e6)/1e6:null;};
+    for(const lane of ['text','vision'])apply(lanes[lane],attempts.filter(r=>(vision.has(r.task)?vision.get(r.task):r.kind==='chart-vqa'||['chart','charts'].includes(r.section))===(lane==='vision')));
+    for(const [domain,sub] of Object.entries(discovery)){const ids=new Set(expected.filter(t=>t.discovery_domain===domain).map(t=>t.task));apply(sub,attempts.filter(r=>ids.has(r.task)));}
+  }
   const allFinished=tids.size>0&&[...tids].every(tid=>timeouts.has(tid)||Array.from({length:repeats.get(tid)??1},(_,i)=>i+1).every(n=>within.some(r=>r.task===tid&&(r.run??1)===n)));
-  const final=available&&(elapsed>=3600||allFinished);
+  const final=available&&(elapsed>=3600||(allFinished&&!job.round_policy));
   const state=!available?'unavailable':final?'final':job.state==='running'?'in_progress':!started?'not_started':'partial';
   const horizon=final?3600:Math.max(0,Math.min(3600,elapsed));
   const totalAvailable=Math.round([...tids].reduce((n,tid)=>n+(weights.get(tid)??1),0)*1e6)/1e6;
-  let area=0;const taskValues=new Map();
-  for(const [at,r] of events.sort((a,b)=>a[0]-b[0])){
-    const previous=taskValues.get(r.task)??0;
-    let value=r.solved?(weights.get(r.task)??1):previous;
-    if(netPolicy&&!r.solved&&!neutral.includes(r.score_reason)&&!neutral.includes(r.termination)&&previous<=0)value=-1;
-    area+=(value-previous)*Math.max(0,horizon-at);taskValues.set(r.task,value);
-  }
-  const denominator=totalAvailable*3600/200;
-  return {version:'hour-v1',window_s:3600,points:available?correct.size:null,correct_tasks:available?[...correct].sort():[],breakdown:lanes,repository_discovery:discovery,
-    score_version:'linear-auc-100-v1',hourglass_score:available&&denominator>0?Math.round(area/denominator*1e6)/1e6:null,
-    total_available_points:totalAvailable,auc_point_seconds:available?Math.round(area*1e6)/1e6:null,score_denominator_point_seconds:denominator,
-    weighted_version:'weighted-hour-v1',weighted_points:available?Math.round((weighted(correct)-(netPolicy?wrong.size:0))*1e6)/1e6:null,
-    scoring_policy:job.scoring_policy??'weighted-hour-v1',gross_points:weighted(correct),net_points:available&&netPolicy?Math.round((weighted(correct)-wrong.size)*1e6)/1e6:null,penalty_points:netPolicy?wrong.size:0,abstained_questions:countReason('abstained'),unsupported_questions:countReason('unsupported_vision'),
+  return {version:'hour-v1',window_s:3600,points:available?(cumulative?correctAttempts.length:correct.size):null,correct_tasks:available?[...correct].sort():[],breakdown:lanes,repository_discovery:discovery,
+    score_version:'total-points-v1',hourglass_score:total,total_available_points:totalAvailable,
+    weighted_version:'weighted-hour-v1',weighted_points:total,
+    scoring_policy:job.scoring_policy??'weighted-hour-v1',gross_points:gross,net_points:netPolicy?total:null,penalty_points:penalties,abstained_questions:countReason('abstained'),unsupported_questions:countReason('unsupported_vision'),
     timeouts:timeouts.size,resolved_questions:new Set([...completed,...timeouts]).size,resolved_available_points:weighted(new Set([...completed,...timeouts])),question_timeout_policy:job.question_timeout_policy??null,
-    completed_questions:completed.size,incorrect_questions:wrong.size,total_questions:tids.size,
+    completed_questions:completed.size,incorrect_questions:cumulative?wrongAttempts.length:wrong.size,total_questions:tids.size,
     after_deadline_questions:after.size,errors,elapsed_s:elapsed,remaining_s:Math.max(0,3600-elapsed),state,
     repair_policy:job.repair?.policy??null,
     timing_note:job.results_reset?'Selected question results were reset; rerun them with a fresh clock. The original hourly score is withheld.':job.repair&&available?job.repair.note:available?'Recorded completion timestamps on active wall clock, including thinking, tools and retries.':'Missing completion timestamps or historical pause intervals; hourly score withheld.'};
 }
-// Display-only forecast. Recorded/ranked scores always remain measured area.
-function predictedHourglassScore(h){
-  const elapsed=h.elapsed_s,remaining=Math.max(0,h.window_s-elapsed),resolved=h.resolved_questions;
-  if(!['in_progress','partial'].includes(h.state)||!(h.points+h.incorrect_questions>0)||!(elapsed>0)||!(resolved>0)||!remaining||!(h.score_denominator_point_seconds>0)||h.auc_point_seconds==null||h.resolved_available_points==null)return null;
-  const left=Math.max(0,h.total_questions-resolved),pace=elapsed/resolved;
-  const futureAnswers=Math.min(left,Math.floor(remaining/pace));
-  const remainingWeight=Math.max(0,h.total_available_points-h.resolved_available_points);
-  const net=['net-hour-v1','net-hour-v2'].includes(h.scoring_policy);
-  const expectedAward=left ? (h.points/resolved)*(remainingWeight/left)-(net?h.incorrect_questions/resolved:0) : 0;
-  // Predicted submissions are steps at the observed average completion interval.
-  const futureArea=h.weighted_points*remaining+expectedAward*(futureAnswers*remaining-pace*futureAnswers*(futureAnswers+1)/2);
-  return (h.auc_point_seconds+futureArea)/h.score_denominator_point_seconds;
-}
-if(typeof module!=='undefined')module.exports={hourScore,questionWeight,predictedHourglassScore};
+if(typeof module!=='undefined')module.exports={hourScore,questionWeight};
