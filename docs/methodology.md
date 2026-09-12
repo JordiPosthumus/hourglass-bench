@@ -1,6 +1,6 @@
 # Method: waves of questions
 
-Current headline metric: **total-points-v1**. New net-hour-v3 evaluations sum awards and penalties across all attempts within one hour. No AUC, normalization, forecast or calibration. After the first pass, whole-bank rounds use latest-attempt outcomes: wrong, unfinished, correct; slowest first within each group.
+Official score metric: **total-points-v1**. New net-hour-v3 evaluations sum awards and penalties across all attempts within one hour. No AUC, normalization, forecast or calibration enters the official result. The [experimental live forecast](score-prediction.md) is display-only. After the first pass, whole-bank rounds use latest-attempt outcomes: wrong, unfinished, correct; slowest first within each group.
 
 Hourglass Bench measures how much correct work an agent completes within one hour of active wall time. Questions arrive in a fixed sequence of difficulty waves, with subjects mixed throughout. The aim is to expose even an early portion of a run to different kinds of work and different difficulty levels.
 

@@ -57,14 +57,14 @@ Store your bank under `tasks/`, with one `task.json` per question directory. See
 
 Hourglass 4.1.0 uses the pinned Pi SDK’s native model declarations, thinking selection, context sizing, compaction and retry defaults. Read [inference profiles](docs/inference-profiles.md) before creating or migrating a configuration. Existing historical profiles keep their saved behavior.
 
-The headline **Hourglass Score** is total points earned within one active hour. Correct attempts earn their frozen authored reward; wrong final answers lose one point. Partial runs show their recorded total, never a forecast. See [the score definition](docs/scoring.md).
+The official **Hourglass Score** is total points earned within one active hour. Correct attempts earn their frozen authored reward; wrong final answers lose one point. During active runs, the UI can show an [experimental predicted final score](docs/score-prediction.md), with earned points underneath. Final results and charts remain measured totals. See [the score definition](docs/scoring.md).
 
 1. The UI freezes the full installed question bank, rule-defined order, model configuration and evaluation policies.
 2. The bundled Pi agent works through the questions using files, bash and tools in isolated workspaces.
 3. Hourglass grades submissions and records timing, usage, evidence and configuration provenance.
 4. The controller stops the benchmark process group at 3,600 active seconds. Pauses between resumes do not count.
 
-New runs use `net-hour-v3`. Total points are the sum of each attempt’s correct-answer reward or wrong-answer penalty within one hour. A correct answer earns its frozen authored weight; an incorrect final answer loses one point. Unfinished and unsupported outcomes earn zero. There is no AUC, forecast or custom calibration.
+New runs use `net-hour-v3`. Total points are the sum of each attempt’s correct-answer reward or wrong-answer penalty within one hour. A correct answer earns its frozen authored weight; an incorrect final answer loses one point. Unfinished and unsupported outcomes earn zero. Official scoring has no AUC, forecast or custom calibration; the experimental live forecast is a separate display-only estimate.
 
 Questions rotate through difficulty bands and subjects; challenge and repository-discovery groups, when present in the bank, have a documented cadence. Each attempt has a 15-minute limit within the original one-hour clock. After the first pass, repeat the entire bank using the latest attempt: wrong answers first, then unfinished questions, then correct answers; slowest first in every group. Each attempt has a fresh conversation and workspace, without previous answers or grading. An unscored warm-up precedes each new run and resume, before the scoring clocks start. New runs randomize option IDs and positions using a private run seed; resumes retain that seed. Thus separate runs can have different option layouts even with identical bank files. See [methodology](docs/methodology.md), [prompt contract](docs/prompt-contract.md) and [run identity](docs/run-identity.md) for comparison limits. Authored tiers carry no empirical difficulty claim.
 
