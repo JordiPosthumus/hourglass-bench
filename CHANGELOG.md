@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add an experimental per-prefix ridge prediction to the live score headline, retaining measured earned points and official final scores. No automatic stopping or confidence claim.
+
 - Move new-run setup into an on-demand, keyboard-accessible right-side drawer, preserving drafts on close and showing setup inline before the first saved run.
 - Collapse technical setup details and benchmark rules, simplify the fixed-bank summary, and remove redundant score breakdown cards beneath the chart.
 
